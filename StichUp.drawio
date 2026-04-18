@@ -1,0 +1,61 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36">
+  <diagram name="Page-1" id="kw6VewCD1v8CyG0rrp5N">
+    <mxGraphModel dx="1732" dy="610" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="User Registration / Login -&amp;gt; Phone Based Only" vertex="1">
+          <mxGeometry height="60" width="120" x="120" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-3" parent="1" style="image;aspect=fixed;perimeter=ellipsePerimeter;html=1;align=center;shadow=0;dashed=0;spacingTop=3;image=img/lib/active_directory/user_accounts.svg;" value="Consumer" vertex="1">
+          <mxGeometry height="48.5" width="50" x="10" y="145.75" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Serviceable Location Check (Based on Zip/Pin Code)" vertex="1">
+          <mxGeometry height="60" width="120" x="330" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Get Template Dresses (Salvar/Kurta -&amp;gt; Ladies)" vertex="1">
+          <mxGeometry height="60" width="120" x="350" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="400" width="250" x="510" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-7" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Browse Present Design (Templates with dynamic pricing)" vertex="1">
+          <mxGeometry height="44.25" width="190" x="540" y="85.75" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Go to User Profile (For edit / delete / update functionality)" vertex="1">
+          <mxGeometry height="44.25" width="190" x="540" y="155.75" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Get my orders (History / Current / Pending / Estimates Timeline)" vertex="1">
+          <mxGeometry height="44.25" width="190" x="540" y="225.75" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Check tailors around your locality (Book Appointment)" vertex="1">
+          <mxGeometry height="60" width="190" x="540" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Raise support / grievances" vertex="1">
+          <mxGeometry height="44.25" width="190" x="540" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-13" parent="1" style="shadow=0;dashed=0;html=1;strokeColor=none;fillColor=#4495D1;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;align=center;outlineConnect=0;shape=mxgraph.veeam.company_owner;" value="Tailor / Shop Owner" vertex="1">
+          <mxGeometry height="48.8" width="44.4" x="15.6" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-15" parent="1" style="shadow=0;dashed=0;html=1;strokeColor=none;fillColor=#4495D1;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;align=center;outlineConnect=0;shape=mxgraph.veeam.portal_admin;" value="Admin" vertex="1">
+          <mxGeometry height="48.8" width="44.4" x="10" y="387.73" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Document / Shop Verification (KYC offline / GSTIN)&lt;div&gt;36 hour wait queue for document verification&lt;/div&gt;" vertex="1">
+          <mxGeometry height="80" width="150" x="120" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Each template configuration with two option&lt;div&gt;- Will you be submitting own clothes?&lt;/div&gt;&lt;div&gt;- Submit your fitting (various sizes, lengths, comfortability) (Warning -&amp;gt; once submitted no changes will be entertained, if any after successful delivery extra charges will be there)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="130" width="236" x="354" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="&lt;div&gt;Estimates price on materical will be used for final stitching&lt;/div&gt;- select material&lt;div&gt;- send your own material (preffered)&lt;/div&gt;" vertex="1">
+          <mxGeometry height="90" width="160" x="120" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Material availability service (since on the order basis updated daily)" vertex="1">
+          <mxGeometry height="80" width="150" x="430" y="700" as="geometry" />
+        </mxCell>
+        <mxCell id="xRMZsWeBMEE4OKenlTVE-20" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Order Tracking (Like material received, tailor assigned, cutting started, final touch, ready to collect)" vertex="1">
+          <mxGeometry height="80" width="175" x="135" y="870" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
