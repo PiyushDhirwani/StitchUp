@@ -35,6 +35,47 @@ INSERT INTO template_type_pricing (template_type_id, base_price, complexity_leve
 (9, 1500.00, 'complex', 15.0);    -- Custom Ensemble
 
 -- ============================================================================
+-- Sub-Type Specific Pricing Adjustments
+-- Allows different pricing for variations within same template
+-- E.g., Salwar (Traditional) ₹800, Salwar (Modern) ₹900, Salwar (Indo-Western) ₹950
+-- ============================================================================
+
+CREATE TABLE template_sub_type_pricing (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  template_sub_type_id INT NOT NULL,
+  price_adjustment DECIMAL(10, 2) DEFAULT 0,
+  override_base_price DECIMAL(10, 2),
+  adjustment_reason TEXT,
+  status ENUM('active', 'inactive') DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (template_sub_type_id) REFERENCES template_sub_type(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_subtype_pricing (template_sub_type_id),
+  KEY idx_template_sub_type_id (template_sub_type_id),
+  KEY idx_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Sample sub-type pricing adjustments
+-- Salwar variations
+INSERT INTO template_sub_type_pricing (template_sub_type_id, price_adjustment, adjustment_reason) VALUES
+(1, 0.00, 'Salwar Traditional - Base price'),        -- Salwar Traditional = ₹800
+(2, 100.00, 'Salwar Modern - Extra details'),        -- Salwar Modern = ₹900
+(3, 150.00, 'Salwar Indo-Western - Fusion complexity'), -- Salwar Indo-Western = ₹950
+
+-- Kurta variations
+(4, 0.00, 'Kurta Short - Base price'),                -- Short Kurta = ₹600
+(5, 100.00, 'Kurta Long - Extra fabric'),             -- Long Kurta = ₹700
+(6, 200.00, 'Kurta Embroidered - Extra work'),        -- Embroidered Kurta = ₹800
+
+-- Dupatta variations
+(7, 0.00, 'Dupatta Plain - Base price'),              -- Plain Dupatta = ₹150
+(8, 100.00, 'Dupatta Embroidered - Extra work'),      -- Embroidered Dupatta = ₹250
+
+-- Churidar variations
+(9, 0.00, 'Churidar Regular - Base price'),           -- Regular Churidar = ₹500
+(10, 75.00, 'Churidar Formal - Extra tailoring');     -- Formal Churidar = ₹575
+
+-- ============================================================================
 -- Material Cost Multiplier
 -- Applied on top of base price (e.g., Silk = 1.5x, Cotton = 1.0x)
 -- ============================================================================
