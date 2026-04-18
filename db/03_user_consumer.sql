@@ -15,10 +15,12 @@ CREATE TABLE user_consumer (
   latitude DECIMAL(10, 8),
   longitude DECIMAL(11, 8),
   preferred_radius_km INT DEFAULT 10,
+  consumer_status ENUM('active', 'inactive') DEFAULT 'active',
   bio TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   KEY idx_city_state (city, state),
-  KEY idx_coordinates (latitude, longitude)
+  KEY idx_coordinates (latitude, longitude),
+  KEY idx_consumer_status (consumer_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

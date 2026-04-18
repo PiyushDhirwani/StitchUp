@@ -22,13 +22,16 @@ CREATE TABLE user_tailor (
   total_orders INT DEFAULT 0,
   is_verified BOOLEAN DEFAULT false,
   verification_status ENUM('pending', 'approved', 'rejected', 'expired') DEFAULT 'pending',
+  tailor_status ENUM('active', 'inactive', 'retired') DEFAULT 'active',
   bio TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  retired_at TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   KEY idx_city_state (city, state),
   KEY idx_coordinates (latitude, longitude),
   KEY idx_is_verified (is_verified),
   KEY idx_average_rating (average_rating),
-  KEY idx_verification_status (verification_status)
+  KEY idx_verification_status (verification_status),
+  KEY idx_tailor_status (tailor_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

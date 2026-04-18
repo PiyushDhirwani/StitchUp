@@ -46,6 +46,10 @@ SOURCE 20_support_tickets.sql;
 SOURCE 21_notifications.sql;
 SOURCE 22_audit_logs.sql;
 
+-- Step 8: Pricing Configuration
+-- ============================================================================
+SOURCE 23_pricing_config.sql;
+
 -- ============================================================================
 -- Database Setup Complete
 -- ============================================================================

@@ -14,14 +14,15 @@ CREATE TABLE material (
   care_instructions TEXT,
   supplier_id INT,
   cost_per_meter DECIMAL(8, 2),
-  is_active BOOLEAN DEFAULT true,
+  status ENUM('active', 'discontinued') DEFAULT 'active',
   notes TEXT,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  discontinued_at TIMESTAMP,
   KEY idx_material_name (material_name),
   KEY idx_material_type (material_type),
   KEY idx_color (color),
-  KEY idx_is_active (is_active)
+  KEY idx_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sample materials

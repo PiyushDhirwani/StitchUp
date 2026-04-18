@@ -9,12 +9,13 @@ CREATE TABLE template_type (
   description TEXT,
   image_url VARCHAR(500),
   category VARCHAR(50),
-  is_active BOOLEAN DEFAULT true,
+  status ENUM('active', 'retired') DEFAULT 'active',
   display_order INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  retired_at TIMESTAMP,
   KEY idx_type_name (type_name),
-  KEY idx_is_active (is_active),
+  KEY idx_status (status),
   KEY idx_display_order (display_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
