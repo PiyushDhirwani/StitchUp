@@ -1,0 +1,246 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  STITCHUP DATABASE SCHEMA STRUCTURE (v2.0)                   ║
+║                      Multi-Item Order Support (NEW!)                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PROJECT FOLDER
+└── db/
+    ├── 📋 MASTER FILE (Start Here!)
+    │   └── 00_master.sql                    [Load this to set up everything]
+    │
+    ├── 🔧 FOUNDATION (2 files)
+    │   ├── 01_user_roles.sql               [admin, tailor, consumer, support]
+    │   └── 02_users.sql                    [users table for all users]
+    │
+    ├── 👤 CONSUMER PROFILE (5 files)
+    │   ├── 03_user_consumer.sql            [consumer address & preferences]
+    │   ├── 04_body_measurements.sql        [height, weight, chest, waist...]
+    │   ├── 05_user_tailor.sql              [tailor shop info & ratings]
+    │   ├── 06_tailor_verification.sql      [PAN, Aadhar, GST verification]
+    │   └── 07_tailor_bank_details.sql      [bank account & UPI info]
+    │
+    ├── 📦 CATALOG (3 files)
+    │   ├── 08_template_type.sql            [Salwar, Kurta, Saree, Scarf...]
+    │   ├── 09_template_sub_type.sql        [Traditional, Modern, Embroid...]
+    │   └── 10_material.sql                 [Cotton, Silk, Georgette...]
+    │
+    ├── 🛒 ORDERS (6 files - WITH MULTI-ITEM SUPPORT!)
+    │   ├── 11_orders.sql                   [order header & summary]
+    │   ├── 12_order_items.sql              [⭐ LINE ITEMS (Salwar + Kurta + Scarf)]
+    │   ├── 13_order_details.sql            [delivery address, specs]
+    │   ├── 14_order_status_history.sql     [audit trail of changes]
+    │   ├── 15_consumer_tailor_match.sql    [tailor candidates & matching]
+    │   └── 16_appointments.sql             [measurement, fitting, pickup]
+    │
+    ├── 💳 PAYMENTS (2 files)
+    │   ├── 17_payment_methods.sql          [credit card, UPI, wallet...]
+    │   └── 18_payment_transactions.sql     [advance, final, refund]
+    │
+    ├── ⭐ FEEDBACK (2 files)
+    │   ├── 19_ratings_reviews.sql          [quality, timeliness ratings]
+    │   └── 20_support_tickets.sql          [issues, grievances]
+    │
+    ├── 🖥️ SYSTEM (2 files)
+    │   ├── 21_notifications.sql            [in-app, email, SMS alerts]
+    │   └── 22_audit_logs.sql               [system audit trail]
+    │
+    ├── 📚 DOCUMENTATION
+    │   ├── README.md                       [Main docs - START HERE!]
+    │   ├── MULTI_ITEM_ORDERS_GUIDE.md     [⭐ Complete multi-item guide]
+    │   ├── FILE_INDEX.md                   [This index]
+    │   └── STRUCTURE_DIAGRAM.txt           [ASCII diagram]
+    │
+    └── ✅ TOTAL: 22 SQL Tables + Comprehensive Docs
+
+═══════════════════════════════════════════════════════════════════════════════
+
+⭐ WHAT'S NEW IN v2.0: MULTI-ITEM ORDERS
+
+┌─ OLD (v1.0) ──────────────────────────────────────────────────────────────┐
+│  Order = 1 Item Only                                                       │
+│  ├─ Order #1001: Salwar (Traditional)                                      │
+│  └─ Can't add Kurta or Scarf to same order ❌                             │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ NEW (v2.0) ──────────────────────────────────────────────────────────────┐
+│  Order = Multiple Items in ONE Transaction! ⭐                            │
+│  ├─ Order #1001: Salwar + Kurta + Scarf Bundle                             │
+│  │  ├─ Item 1: Salwar (Traditional) - ₹1400                               │
+│  │  ├─ Item 2: Kurta (Modern) - ₹1900                                      │
+│  │  └─ Item 3: Dupatta (Embroidered) - ₹700                                │
+│  │  └─ TOTAL: ₹4000 (all items together)                                   │
+│  │                                                                         │
+│  ├─ One Tailor handles ALL items                                           │
+│  ├─ Single delivery date                                                   │
+│  └─ Unified tracking ✅                                                    │
+└────────────────────────────────────────────────────────────────────────────┘
+
+═══════════════════════════════════════════════════════════════════════════════
+
+KEY TABLES
+
+📋 ORDERS TABLE
+  ├─ id: Order ID
+  ├─ consumer_id: Who ordered
+  ├─ tailor_id: Who's making it
+  ├─ number_of_items: Count (1, 2, 3+)
+  ├─ order_status: created, material_received, assigned, stitching...
+  ├─ total_cost: Sum of all items cost
+  ├─ final_amount: Total after discount
+  └─ delivery_date: When customer receives
+
+📦 ORDER_ITEMS TABLE (NEW!)
+  ├─ order_id: Which order
+  ├─ item_sequence: 1, 2, 3...
+  ├─ template_type_id: Salwar? Kurta? Scarf?
+  ├─ template_sub_type_id: Traditional? Modern? Embroidered?
+  ├─ material_id: What fabric
+  ├─ length_meters: How much fabric
+  ├─ item_cost: Price for THIS item
+  ├─ embroidery_required: Yes/No
+  ├─ customization_details: Special instructions
+  └─ design_reference_url: Image/reference
+
+📋 ORDER_DETAILS TABLE
+  ├─ order_id: Which order
+  ├─ body_measurement_id: Consumer's measurements
+  ├─ delivery_address: Where to deliver
+  ├─ total_fabric_length_meters: Sum of all items fabric
+  └─ payment_schedule: advance/final split
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🚀 QUICK START
+
+Step 1: Load Database
+  $ mysql stitchup_db -u root -p < 00_master.sql
+
+Step 2: Verify
+  $ mysql stitchup_db -u root -p -e "SHOW TABLES;"
+  ✅ Should show 22 tables
+
+Step 3: Read Docs
+  - README.md (overview & structure)
+  - MULTI_ITEM_ORDERS_GUIDE.md (detailed multi-item guide)
+
+Step 4: Create an Order
+  INSERT INTO orders (...) VALUES (...)  -- Create order
+  INSERT INTO order_items (...) VALUES (...) -- Item 1: Salwar
+  INSERT INTO order_items (...) VALUES (...) -- Item 2: Kurta
+  INSERT INTO order_items (...) VALUES (...) -- Item 3: Scarf
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📊 FILE BREAKDOWN
+
+Total Files: 25
+├─ SQL Files: 22 (individual tables)
+├─ Master: 1 (loads all tables)
+└─ Docs: 2 (README + Multi-Item Guide + Index + Diagram)
+
+Total Size: ~50KB (25KB SQL + 25KB Docs)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✨ DESIGN HIGHLIGHTS
+
+✅ Multi-Item Orders
+   └─ Salwar + Kurta + Scarf in ONE order, ONE transaction
+✅ Separate Auth
+   └─ Consumer and Tailor are separate user types
+✅ Audit Trail
+   └─ Complete history of all order status changes
+✅ Rich Ratings
+   └─ Quality, Timeliness, Communication ratings
+✅ Support System
+   └─ Dedicated support tickets with resolution tracking
+✅ Payment Flexibility
+   └─ Advance + Final payments, refunds, adjustments
+✅ Strategic Indexing
+   └─ Optimized for fast queries at scale
+✅ Compliance Ready
+   └─ Audit logs, immutable history, bank details tracking
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 WHERE ARE THINGS?
+
+Multi-Item Orders Info     → MULTI_ITEM_ORDERS_GUIDE.md
+Quick Start                → README.md (Quick Start section)
+Table Descriptions         → README.md + Individual .sql files
+API Integration Examples   → MULTI_ITEM_ORDERS_GUIDE.md
+Sample Queries             → MULTI_ITEM_ORDERS_GUIDE.md
+This Diagram               → STRUCTURE_DIAGRAM.txt
+
+═══════════════════════════════════════════════════════════════════════════════
+
+❓ HOW TO USE INDIVIDUAL FILES
+
+Option 1: Load Everything
+  $ mysql stitchup_db -u root -p < 00_master.sql
+
+Option 2: Load Specific Table
+  $ mysql stitchup_db -u root -p < 12_order_items.sql
+
+Option 3: View SQL Before Loading
+  $ cat 12_order_items.sql | less
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔗 DEPENDENCIES
+
+Orders → Requires
+├── consumers (user_consumer)
+├── tailors (user_tailor)
+├── template_type
+└── template_sub_type
+
+Order Items → Requires
+├── orders
+├── template_type
+├── template_sub_type
+└── material
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ VERIFICATION CHECKLIST
+
+After loading database:
+  □ Show tables: SHOW TABLES; [Should show 22]
+  □ Check sample data: SELECT * FROM template_type; [Should have 9 rows]
+  □ Test query: SELECT * FROM order_items LIMIT 1; [Should be empty]
+  □ Schema version: cat README.md [Should say v2.0]
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📝 VERSION HISTORY
+
+v2.0 (2026-04-19) ⭐
+  ✨ Added order_items table for multi-item orders
+  ✨ Split schema into 22 modular SQL files
+  ✨ Added comprehensive multi-item order guide
+  ✨ Backward compatible with single-item orders
+
+v1.0 (Initial)
+  - Monolithic schema file
+  - Single item per order only
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🎯 NEXT STEPS
+
+1. ✅ Load database (00_master.sql)
+2. ✅ Read README.md
+3. → Create API layer (POST /orders with items)
+4. → Build frontend order builder
+5. → Implement tailor matching
+6. → Add payment processing
+7. → Build notification system
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Happy Stitching! 🪡
+
+Generated: 2026-04-19
+Database Version: 2.0 (Multi-Item Orders)
+Schema Status: ✅ Ready for Development
