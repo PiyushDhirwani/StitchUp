@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TemplateType } from '../../entities/template-type.entity';
@@ -8,7 +8,10 @@ import { TemplateTypePricing } from '../../entities/pricing/template-type-pricin
 import { TemplateSubTypePricing } from '../../entities/pricing/template-sub-type-pricing.entity';
 import { MaterialPricingMultiplier } from '../../entities/pricing/material-pricing-multiplier.entity';
 import { CustomizationPricing } from '../../entities/pricing/customization-pricing.entity';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { ErrorCodes } from '../../common/constants/error-codes';
+import { CreateTemplateTypeDto } from './dto/create-template-type.dto';
+import { CreateTemplateSubTypeDto } from './dto/create-template-sub-type.dto';
 
 @Injectable()
 export class TemplatesService {
@@ -20,6 +23,7 @@ export class TemplatesService {
     @InjectRepository(TemplateSubTypePricing) private subTypePricingRepo: Repository<TemplateSubTypePricing>,
     @InjectRepository(MaterialPricingMultiplier) private materialPricingRepo: Repository<MaterialPricingMultiplier>,
     @InjectRepository(CustomizationPricing) private customizationRepo: Repository<CustomizationPricing>,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   async getAllTemplates(status?: string, category?: string) {
@@ -219,6 +223,105 @@ export class TemplatesService {
       },
       available_customizations: grouped,
       available_materials: materialsWithPricing,
+    };
+  }
+
+  async createTemplateType(dto: CreateTemplateTypeDto, image?: Express.Multer.File) {
+    const existing = await this.templateTypeRepo.findOne({
+      where: { type_name: dto.type_name },
+    });
+    if (existing) {
+      throw new ConflictException({
+        error_code: ErrorCodes.TEMPLATE_EXISTS,
+        message: `Template type '${dto.type_name}' already exists`,
+      });
+    }
+
+    let imageUrl: string | undefined;
+    if (image) {
+      const uploaded = await this.cloudinaryService.uploadImage(image, 'stitchup/templates');
+      imageUrl = uploaded.url;
+    }
+
+    const templateType = this.templateTypeRepo.create({
+      type_name: dto.type_name,
+      description: dto.description,
+      category: dto.category,
+      status: dto.status || 'active',
+      display_order: dto.display_order || 0,
+      image_url: imageUrl,
+    });
+    const saved = await this.templateTypeRepo.save(templateType);
+
+    return {
+      message: 'Template type created successfully',
+      data: {
+        id: saved.id,
+        type_name: saved.type_name,
+        description: saved.description,
+        image_url: saved.image_url,
+        category: saved.category,
+        status: saved.status,
+        display_order: saved.display_order,
+        created_at: saved.created_at,
+      },
+    };
+  }
+
+  async createTemplateSubType(
+    templateId: number,
+    dto: CreateTemplateSubTypeDto,
+    image?: Express.Multer.File,
+  ) {
+    const tt = await this.templateTypeRepo.findOne({ where: { id: templateId } });
+    if (!tt) {
+      throw new NotFoundException({
+        error_code: ErrorCodes.TEMPLATE_NOT_FOUND,
+        message: 'Template type not found',
+      });
+    }
+
+    const existing = await this.subTypeRepo.findOne({
+      where: { template_type_id: templateId, sub_type_name: dto.sub_type_name },
+    });
+    if (existing) {
+      throw new ConflictException({
+        error_code: ErrorCodes.TEMPLATE_EXISTS,
+        message: `Sub-type '${dto.sub_type_name}' already exists under '${tt.type_name}'`,
+      });
+    }
+
+    let imageUrl: string | undefined;
+    if (image) {
+      const uploaded = await this.cloudinaryService.uploadImage(image, 'stitchup/templates/subtypes');
+      imageUrl = uploaded.url;
+    }
+
+    const subType = this.subTypeRepo.create({
+      template_type_id: templateId,
+      sub_type_name: dto.sub_type_name,
+      description: dto.description,
+      sizing_notes: dto.sizing_notes,
+      status: dto.status || 'active',
+      display_order: dto.display_order || 0,
+      image_url: imageUrl,
+    });
+    const saved = await this.subTypeRepo.save(subType);
+
+    return {
+      message: 'Template sub-type created successfully',
+      data: {
+        id: saved.id,
+        template_type_id: templateId,
+        template_type_name: tt.type_name,
+        sub_type_name: saved.sub_type_name,
+        description: saved.description,
+        image_url: saved.image_url,
+        sizing_notes: saved.sizing_notes,
+        status: saved.status,
+        display_order: saved.display_order,
+        created_at: saved.created_at,
+      },
     };
   }
 }

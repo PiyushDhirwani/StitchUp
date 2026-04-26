@@ -9,6 +9,7 @@ import { TemplateTypePricing } from '../../entities/pricing/template-type-pricin
 import { TemplateSubTypePricing } from '../../entities/pricing/template-sub-type-pricing.entity';
 import { MaterialPricingMultiplier } from '../../entities/pricing/material-pricing-multiplier.entity';
 import { CustomizationPricing } from '../../entities/pricing/customization-pricing.entity';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { CustomizationPricing } from '../../entities/pricing/customization-prici
     ]),
   ],
   controllers: [TemplatesController],
-  providers: [TemplatesService],
+  providers: [TemplatesService, CloudinaryService],
   exports: [TemplatesService],
 })
 export class TemplatesModule {}

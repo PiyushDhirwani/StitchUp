@@ -64,6 +64,11 @@ SMTP_USER=your_gmail@gmail.com
 SMTP_PASS=your_16_char_app_password
 SMTP_FROM_NAME=StitchUp
 
+# Cloudinary (Image Upload)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+
 NODE_ENV=development
 ```
 
@@ -75,6 +80,24 @@ NODE_ENV=development
 4. Copy the 16-character code into `SMTP_PASS` in `.env`
 
 > **Note**: Gmail allows ~500 emails/day on free accounts — plenty for development and early usage.
+
+#### Setting up Cloudinary
+
+1. Sign up at [cloudinary.com](https://cloudinary.com) (free tier: **25GB** storage + **25GB** bandwidth/month)
+2. Go to **Dashboard** → copy **Cloud Name**, **API Key**, and **API Secret**
+3. Paste them into `.env`:
+   ```env
+   CLOUDINARY_CLOUD_NAME=dunnj2dr2
+   CLOUDINARY_API_KEY=515524738579223
+   CLOUDINARY_API_SECRET=your_api_secret_here
+   ```
+
+Images are uploaded to Cloudinary when creating template types and sub-types via `POST /api/templates` and `POST /api/templates/:id/subtypes`. The returned CDN URL is stored in the `image_url` column.
+
+- **Allowed formats**: JPEG, PNG, WebP, SVG
+- **Max size**: 5MB per image
+- **Auto-optimization**: Cloudinary applies quality and format transforms automatically
+- **Folder structure**: `stitchup/templates/` for types, `stitchup/templates/subtypes/` for sub-types
 
 ### 3. Create the database and tables
 
@@ -196,7 +219,9 @@ redis-cli TTL "otp:sess_abc123xyz456"         # Seconds until expiry
 | GET    | `/api/user/details/:userId`                    | Get user profile                   | JWT  |
 | PUT    | `/api/user/details/:userId`                    | Update user profile                | JWT  |
 | GET    | `/api/templates`                               | List all template types            | No   |
+| POST   | `/api/templates`                               | Create template type (+ image)     | JWT  |
 | GET    | `/api/templates/:templateId`                   | Get template details               | No   |
+| POST   | `/api/templates/:templateId/subtypes`          | Create sub-type (+ image)          | JWT  |
 | GET    | `/api/templates/:templateId/:subTemplateId`    | Get sub-type details               | No   |
 | POST   | `/api/pricing/calculate`                       | Calculate order price               | JWT  |
 | GET    | `/api/pricing/materials`                       | List materials with pricing        | No   |
@@ -377,6 +402,7 @@ See [.env.example](./.env.example) for the full list. Key groups:
 - **JWT**: `JWT_SECRET`, `JWT_EXPIRY`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRY`
 - **OTP**: `OTP_LENGTH`, `OTP_EXPIRY_SECONDS`, `MAX_OTP_ATTEMPTS`
 - **Email (Gmail SMTP)**: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM_NAME`
+- **Cloudinary**: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`
 - **Rate Limiting**: `THROTTLE_TTL`, `THROTTLE_LIMIT`
 
 ---
