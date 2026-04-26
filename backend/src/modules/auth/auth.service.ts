@@ -21,6 +21,7 @@ import { UserTailor } from '../../entities/user-tailor.entity';
 import { REDIS_CLIENT } from '../../config/redis.config';
 import { ErrorCodes } from '../../common/constants/error-codes';
 import { EmailService } from '../../common/services/email.service';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 import { RegisterConsumerDto } from './dto/register-consumer.dto';
 import { RegisterTailorDto } from './dto/register-tailor.dto';
 import { RequestOtpDto, VerifyOtpDto } from './dto/login.dto';
@@ -38,6 +39,7 @@ export class AuthService {
     private configService: ConfigService,
     @Inject(REDIS_CLIENT) private redis: Redis,
     private emailService: EmailService,
+    private cloudinaryService: CloudinaryService,
   ) {}
 
   async registerConsumer(dto: RegisterConsumerDto) {
@@ -78,6 +80,7 @@ export class AuthService {
           bio: dto.bio,
           latitude: dto.latitude,
           longitude: dto.longitude,
+          digipin: dto.digipin,
           preferred_radius_km: dto.preferred_radius_km || 10,
         },
       },
@@ -102,13 +105,23 @@ export class AuthService {
     };
   }
 
-  async registerTailor(dto: RegisterTailorDto) {
+  async registerTailor(dto: RegisterTailorDto, addressProofFile?: Express.Multer.File) {
     await this.checkDuplicates(dto.email, dto.phone_number);
 
     const role = await this.roleRepo.findOne({ where: { role_name: 'tailor' } });
     if (!role) throw new NotFoundException('Tailor role not found');
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
+
+    // Upload address proof to Cloudinary if provided
+    let addressProofUrl: string | null = null;
+    if (addressProofFile) {
+      const uploadResult = await this.cloudinaryService.uploadImage(
+        addressProofFile,
+        'stitchup/kyc/address-proofs',
+      );
+      addressProofUrl = uploadResult.url;
+    }
 
     // Cache registration data in Redis — no DB write yet
     const otp = this.generateOtp();
@@ -140,10 +153,13 @@ export class AuthService {
           country: dto.country || 'India',
           latitude: dto.latitude,
           longitude: dto.longitude,
+          digipin: dto.digipin,
           business_type: dto.business_type,
           years_of_experience: dto.years_of_experience,
           bio: dto.bio,
           shop_registration_number: dto.shop_registration_number,
+          aadhar_number: dto.aadhar_number,
+          address_proof_url: addressProofUrl,
         },
       },
     });

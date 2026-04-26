@@ -34,6 +34,11 @@ export class RegisterConsumerDto {
   @ApiProperty({ example: 'SecurePass123!' })
   @IsNotEmpty()
   @MinLength(8)
+  @MaxLength(64)
+  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-={}|;:'",.<>?/`~])/, {
+    message:
+      'Password must contain at least one uppercase letter, one lowercase letter, one number, and one special character',
+  })
   password: string;
 
   @ApiProperty({ example: '123 Main Street' })
@@ -59,7 +64,7 @@ export class RegisterConsumerDto {
   @ApiProperty({ example: '400001' })
   @IsNotEmpty()
   @IsString()
-  @MaxLength(20)
+  @Matches(/^[1-9][0-9]{5}$/, { message: 'Postal code must be a valid 6-digit Indian PIN code' })
   postal_code: string;
 
   @ApiPropertyOptional({ example: 'India', default: 'India' })
@@ -81,6 +86,11 @@ export class RegisterConsumerDto {
   @IsOptional()
   @IsNumber()
   longitude?: number;
+
+  @ApiPropertyOptional({ example: '38J-7F4-6K2L', description: 'India Post DigiPIN derived from coordinates' })
+  @IsOptional()
+  @IsString()
+  digipin?: string;
 
   @ApiPropertyOptional({ example: 10, default: 10 })
   @IsOptional()

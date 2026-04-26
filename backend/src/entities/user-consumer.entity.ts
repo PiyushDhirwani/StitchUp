@@ -44,6 +44,9 @@ export class UserConsumer {
   @Column({ type: 'decimal', precision: 11, scale: 8, nullable: true })
   longitude: number;
 
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  digipin: string;
+
   @Column({ type: 'int', default: 10 })
   preferred_radius_km: number;
 

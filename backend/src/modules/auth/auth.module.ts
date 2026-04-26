@@ -12,6 +12,7 @@ import { UserConsumer } from '../../entities/user-consumer.entity';
 import { UserTailor } from '../../entities/user-tailor.entity';
 import { REDIS_CLIENT, createRedisClient } from '../../config/redis.config';
 import { EmailService } from '../../common/services/email.service';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { EmailService } from '../../common/services/email.service';
     AuthService,
     JwtStrategy,
     EmailService,
+    CloudinaryService,
     {
       provide: REDIS_CLIENT,
       useFactory: (configService: ConfigService) => createRedisClient(configService),

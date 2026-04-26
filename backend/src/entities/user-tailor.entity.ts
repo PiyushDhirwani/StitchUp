@@ -48,8 +48,17 @@ export class UserTailor {
   @Column({ type: 'decimal', precision: 11, scale: 8, nullable: true })
   longitude: number;
 
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  digipin: string;
+
   @Column({ type: 'varchar', length: 100, nullable: true })
   shop_registration_number: string;
+
+  @Column({ type: 'varchar', length: 12, nullable: true })
+  aadhar_number: string;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  address_proof_url: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   business_type: string;
