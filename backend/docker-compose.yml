@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: stitchup-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root_password}
+      MYSQL_DATABASE: ${DB_NAME:-stitchup_db}
+    ports:
+      - '${DB_PORT:-3306}:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../db/01_user_roles.sql:/docker-entrypoint-initdb.d/01_user_roles.sql
+      - ../db/02_users.sql:/docker-entrypoint-initdb.d/02_users.sql
+      - ../db/03_user_consumer.sql:/docker-entrypoint-initdb.d/03_user_consumer.sql
+      - ../db/04_body_measurements.sql:/docker-entrypoint-initdb.d/04_body_measurements.sql
+      - ../db/05_user_tailor.sql:/docker-entrypoint-initdb.d/05_user_tailor.sql
+      - ../db/06_tailor_verification.sql:/docker-entrypoint-initdb.d/06_tailor_verification.sql
+      - ../db/07_tailor_bank_details.sql:/docker-entrypoint-initdb.d/07_tailor_bank_details.sql
+      - ../db/08_template_type.sql:/docker-entrypoint-initdb.d/08_template_type.sql
+      - ../db/09_template_sub_type.sql:/docker-entrypoint-initdb.d/09_template_sub_type.sql
+      - ../db/10_material.sql:/docker-entrypoint-initdb.d/10_material.sql
+      - ../db/11_orders.sql:/docker-entrypoint-initdb.d/11_orders.sql
+      - ../db/12_order_items.sql:/docker-entrypoint-initdb.d/12_order_items.sql
+      - ../db/13_order_details.sql:/docker-entrypoint-initdb.d/13_order_details.sql
+      - ../db/14_order_status_history.sql:/docker-entrypoint-initdb.d/14_order_status_history.sql
+      - ../db/15_consumer_tailor_match.sql:/docker-entrypoint-initdb.d/15_consumer_tailor_match.sql
+      - ../db/16_appointments.sql:/docker-entrypoint-initdb.d/16_appointments.sql
+      - ../db/17_payment_methods.sql:/docker-entrypoint-initdb.d/17_payment_methods.sql
+      - ../db/18_payment_transactions.sql:/docker-entrypoint-initdb.d/18_payment_transactions.sql
+      - ../db/19_ratings_reviews.sql:/docker-entrypoint-initdb.d/19_ratings_reviews.sql
+      - ../db/20_support_tickets.sql:/docker-entrypoint-initdb.d/20_support_tickets.sql
+      - ../db/21_notifications.sql:/docker-entrypoint-initdb.d/21_notifications.sql
+      - ../db/22_audit_logs.sql:/docker-entrypoint-initdb.d/22_audit_logs.sql
+      - ../db/23_pricing_config.sql:/docker-entrypoint-initdb.d/23_pricing_config.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: stitchup-redis
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stitchup-api
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  mysql_data:
+  redis_data:
