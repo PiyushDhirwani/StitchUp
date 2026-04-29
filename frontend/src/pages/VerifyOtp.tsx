@@ -15,6 +15,8 @@ export default function VerifyOtp() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [countdown, setCountdown] = useState(otp_expiry_seconds);
+  const [resendCooldown, setResendCooldown] = useState(30);
+  const [resending, setResending] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
@@ -28,6 +30,12 @@ export default function VerifyOtp() {
     const timer = setInterval(() => setCountdown((c: number) => c - 1), 1000);
     return () => clearInterval(timer);
   }, [countdown]);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => setResendCooldown((c: number) => c - 1), 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -110,18 +118,22 @@ export default function VerifyOtp() {
   };
 
   const handleResend = async () => {
-    if (countdown > 0) return;
+    if (resendCooldown > 0 || resending) return;
     setError('');
+    setResending(true);
     try {
       const res = await authService.requestOtp({ email });
       const newSession = res.data.data.session_id;
       const newExpiry = res.data.data.otp_expiry_seconds || 300;
       location.state.session_id = newSession;
       setCountdown(newExpiry);
+      setResendCooldown(30);
       setOtp(Array(OTP_LENGTH).fill(''));
       inputRefs.current[0]?.focus();
     } catch {
       setError('Failed to resend OTP. Please try again.');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -205,12 +217,13 @@ export default function VerifyOtp() {
           </form>
 
           <div className="text-center mt-6">
+            <p className="text-xs text-gray-400 mb-2">Didn't receive the code? Check your spam folder.</p>
             <button
               onClick={handleResend}
-              disabled={countdown > 0}
+              disabled={resendCooldown > 0 || resending}
               className="text-sm text-teal-700 font-medium hover:underline disabled:text-gray-400 disabled:no-underline disabled:cursor-not-allowed transition-colors"
             >
-              Resend code
+              {resending ? 'Sending...' : resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
             </button>
           </div>
         </div>

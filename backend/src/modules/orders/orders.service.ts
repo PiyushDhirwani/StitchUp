@@ -54,11 +54,17 @@ export class OrdersService {
     });
     if (!consumer) throw new NotFoundException({ error_code: ErrorCodes.USER_NOT_FOUND, message: 'Consumer not found or inactive' });
 
-    // Validate measurement belongs to consumer
-    const measurement = await this.measurementRepo.findOne({
-      where: { id: dto.body_measurement_id, consumer_id: dto.consumer_id },
-    });
-    if (!measurement) throw new NotFoundException({ error_code: ErrorCodes.BODY_MEASUREMENT_NOT_FOUND, message: 'Body measurement not found or does not belong to this consumer' });
+    // Validate measurement belongs to consumer (only for manual_measurements)
+    let measurement = null;
+    if (dto.measurement_method === 'manual_measurements') {
+      if (!dto.body_measurement_id) {
+        throw new BadRequestException({ error_code: ErrorCodes.BODY_MEASUREMENT_NOT_FOUND, message: 'Body measurement is required when using manual measurements' });
+      }
+      measurement = await this.measurementRepo.findOne({
+        where: { id: dto.body_measurement_id, consumer_id: dto.consumer_id },
+      });
+      if (!measurement) throw new NotFoundException({ error_code: ErrorCodes.BODY_MEASUREMENT_NOT_FOUND, message: 'Body measurement not found or does not belong to this consumer' });
+    }
 
     // Validate template
     const tt = await this.templateTypeRepo.findOne({ where: { id: dto.template_type_id, status: 'active' } });
@@ -126,7 +132,8 @@ export class OrdersService {
     // Create order details
     const orderDetails = this.orderDetailsRepo.create({
       order_id: savedOrder.id,
-      body_measurement_id: dto.body_measurement_id,
+      body_measurement_id: dto.body_measurement_id || undefined,
+      measurement_method: dto.measurement_method || 'manual_measurements',
       total_fabric_length_meters: dto.fabric_length_meters,
       delivery_address_line1: dto.delivery_address_line1,
       delivery_address_line2: dto.delivery_address_line2,

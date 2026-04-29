@@ -11,6 +11,7 @@ import { UsersModule } from './modules/users/users.module';
 import { TemplatesModule } from './modules/templates/templates.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { SupportModule } from './modules/support/support.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { OrdersModule } from './modules/orders/orders.module';
     TemplatesModule,
     PricingModule,
     OrdersModule,
+    SupportModule,
   ],
   providers: [
     {

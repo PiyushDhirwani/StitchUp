@@ -87,12 +87,13 @@ export class AuthService {
     });
     await this.redis.setex(`otp:${sessionId}`, otpExpiry, sessionData);
 
-    // Send OTP email
-    const sent = await this.emailService.sendOtp(dto.email, otp);
-    if (!sent) {
-      this.logger.warn(`Email send failed for ${dto.email}, logging OTP to console`);
-      this.logger.log(`[FALLBACK] OTP for ${dto.email}: ${otp}`);
-    }
+    // Send OTP email in background (non-blocking)
+    this.emailService.sendOtp(dto.email, otp).then((sent) => {
+      if (!sent) {
+        this.logger.warn(`Email send failed for ${dto.email}, logging OTP to console`);
+        this.logger.log(`[FALLBACK] OTP for ${dto.email}: ${otp}`);
+      }
+    });
 
     return {
       message: 'Verification code sent to your email. Please verify to complete registration.',
@@ -165,12 +166,13 @@ export class AuthService {
     });
     await this.redis.setex(`otp:${sessionId}`, otpExpiry, sessionData);
 
-    // Send OTP email
-    const sent = await this.emailService.sendOtp(dto.email, otp);
-    if (!sent) {
-      this.logger.warn(`Email send failed for ${dto.email}, logging OTP to console`);
-      this.logger.log(`[FALLBACK] OTP for ${dto.email}: ${otp}`);
-    }
+    // Send OTP email in background (non-blocking)
+    this.emailService.sendOtp(dto.email, otp).then((sent) => {
+      if (!sent) {
+        this.logger.warn(`Email send failed for ${dto.email}, logging OTP to console`);
+        this.logger.log(`[FALLBACK] OTP for ${dto.email}: ${otp}`);
+      }
+    });
 
     return {
       message: 'Verification code sent to your email. Please verify to complete registration.',
@@ -386,11 +388,13 @@ export class AuthService {
     });
     await this.redis.setex(`otp:${sessionId}`, otpExpiry, otpData);
 
-    const sent = await this.emailService.sendOtp(user.email, otp);
-    if (!sent) {
-      this.logger.warn(`Email send failed for ${user.email}, logging OTP to console`);
-      this.logger.log(`[FALLBACK] OTP for ${user.email}: ${otp}`);
-    }
+    // Send OTP email in background (non-blocking)
+    this.emailService.sendOtp(user.email, otp).then((sent) => {
+      if (!sent) {
+        this.logger.warn(`Email send failed for ${user.email}, logging OTP to console`);
+        this.logger.log(`[FALLBACK] OTP for ${user.email}: ${otp}`);
+      }
+    });
 
     return { otp_expiry_seconds: otpExpiry, session_id: sessionId };
   }

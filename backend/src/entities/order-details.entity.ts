@@ -29,6 +29,13 @@ export class OrderDetails {
   @Column({ nullable: true })
   body_measurement_id: number;
 
+  @Column({
+    type: 'enum',
+    enum: ['manual_measurements', 'reference_clothing'],
+    default: 'manual_measurements',
+  })
+  measurement_method: string;
+
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   total_fabric_length_meters: number;
 

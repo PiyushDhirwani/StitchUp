@@ -48,4 +48,23 @@ export class EmailService {
       return false;
     }
   }
+
+  async sendGeneric(to: string, subject: string, html: string): Promise<boolean> {
+    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
+    const fromEmail = this.configService.get<string>('SMTP_USER');
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(`Email sent to ${to}: ${subject}`);
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to send email to ${to}: ${error.message}`);
+      return false;
+    }
+  }
 }

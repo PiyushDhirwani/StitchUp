@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsNotEmpty, IsOptional, IsString, IsArray, ValidateNested, IsNumber, IsBoolean, MaxLength, IsDateString } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, IsArray, ValidateNested, IsNumber, IsBoolean, MaxLength, IsDateString, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CustomizationItemDto } from '../../pricing/dto/calculate-price.dto';
 
@@ -24,10 +24,15 @@ export class CreateOrderDto {
   @IsInt()
   material_id: number;
 
-  @ApiProperty({ example: 1 })
+  @ApiProperty({ example: 'manual_measurements', enum: ['manual_measurements', 'reference_clothing'] })
   @IsNotEmpty()
+  @IsEnum(['manual_measurements', 'reference_clothing'])
+  measurement_method: string;
+
+  @ApiPropertyOptional({ example: 1, description: 'Required when measurement_method is manual_measurements' })
+  @IsOptional()
   @IsInt()
-  body_measurement_id: number;
+  body_measurement_id?: number;
 
   @ApiProperty({ example: 2.5 })
   @IsNotEmpty()
