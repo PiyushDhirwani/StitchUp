@@ -359,7 +359,7 @@ export class AuthService {
       { sub: user.id, email: user.email, role },
       {
         secret: this.configService.get<string>('JWT_SECRET'),
-        expiresIn: this.configService.get('JWT_EXPIRY', '24h') as any,
+        expiresIn: this.configService.get('JWT_EXPIRY', '1h') as any,
       },
     );
   }

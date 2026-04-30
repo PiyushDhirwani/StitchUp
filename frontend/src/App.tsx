@@ -6,8 +6,11 @@ import Dashboard from '@/pages/Dashboard'
 import NewOrder from '@/pages/NewOrder'
 import SupportGrievance from '@/pages/SupportGrievance'
 import SupportFeedback from '@/pages/SupportFeedback'
+import { useInactivityLogout } from '@/hooks/useInactivityLogout'
 
 function App() {
+  useInactivityLogout()
+
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/register" replace />} />

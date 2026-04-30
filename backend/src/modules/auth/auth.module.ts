@@ -22,7 +22,7 @@ import { CloudinaryService } from '../../common/services/cloudinary.service';
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => ({
         secret: configService.get<string>('JWT_SECRET', 'default_secret'),
-        signOptions: { expiresIn: configService.get('JWT_EXPIRY', '24h') as any },
+        signOptions: { expiresIn: configService.get('JWT_EXPIRY', '1h') as any },
       }),
       inject: [ConfigService],
     }),

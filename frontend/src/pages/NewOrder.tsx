@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -9,19 +9,36 @@ import {
   AlertTriangle,
   Check,
   Package,
+  MapPin,
+  IndianRupee,
+  Info,
+  MessageSquare,
+  LocateFixed,
+  Mic,
+  MicOff,
+  Truck,
+  PackageOpen,
+  ExternalLink,
+  Phone,
+  Mail,
 } from 'lucide-react';
-import { templateService, type Template, type SubType } from '@/services/templates';
+import { templateService, type Template } from '@/services/templates';
+import { lookupPincode } from '@/services/pincode';
+import { useGeolocation } from '@/hooks/useGeolocation';
 import { cn } from '@/lib/cn';
+import api from '@/services/api';
+import { ORDER_CONFIG } from '@/config/order.config';
 
-type Step = 'template' | 'subtypes' | 'review';
+type Step = 'template' | 'details' | 'review';
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'template', label: 'Choose Template' },
-  { key: 'subtypes', label: 'Parts & Measurements' },
-  { key: 'review', label: 'Review' },
+  { key: 'details', label: 'Measurements & Details' },
+  { key: 'review', label: 'Review & Pay' },
 ];
 
 type MeasurementMethod = 'manual_measurements' | 'reference_clothing';
+type DeliveryMethod = 'pickup' | 'self_parcel';
 
 interface Measurements {
   height_cm: string;
@@ -62,18 +79,58 @@ const measurementLabels: Record<keyof Measurements, string> = {
   back_length_cm: 'Back Length (cm)',
 };
 
+interface Address {
+  flat_number: string;
+  address_line1: string;
+  city: string;
+  state: string;
+  postal_code: string;
+}
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 export default function NewOrder() {
   const navigate = useNavigate();
+  const geo = useGeolocation();
+
   const [step, setStep] = useState<Step>('template');
   const [loading, setLoading] = useState(true);
   const [templates, setTemplates] = useState<Template[]>([]);
 
   // Selections
   const [selectedTemplate, setSelectedTemplate] = useState<Template | null>(null);
-  const [selectedSubTypes, setSelectedSubTypes] = useState<SubType[]>([]);
   const [measurementMethod, setMeasurementMethod] = useState<MeasurementMethod>('manual_measurements');
   const [measurements, setMeasurements] = useState<Measurements>(emptyMeasurements);
   const [referenceConfirmed, setReferenceConfirmed] = useState(false);
+  const [specialRequests, setSpecialRequests] = useState('');
+
+  // Audio recording for measurements
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const [audioCloudUrl, setAudioCloudUrl] = useState('');
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  // Address + contact
+  const [address, setAddress] = useState<Address>({ flat_number: '', address_line1: '', city: '', state: '', postal_code: '' });
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+  const [pincodeLoading, setPincodeLoading] = useState(false);
+  const [pincodeDistrict, setPincodeDistrict] = useState('');
+  const [reverseGeoLoading, setReverseGeoLoading] = useState(false);
+
+  // Delivery method
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryMethod>('self_parcel');
+
+  // Payment
+  const [placing, setPlacing] = useState(false);
+  const [payError, setPayError] = useState('');
 
   useEffect(() => {
     templateService
@@ -81,40 +138,228 @@ export default function NewOrder() {
       .then((res) => setTemplates(res.data.data))
       .catch(() => {})
       .finally(() => setLoading(false));
+    // Pre-fill contact from user profile
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      if (u.phone_number) setContactPhone(u.phone_number);
+      if (u.email) setContactEmail(u.email);
+    } catch { /* ignore */ }
   }, []);
+
+  // Pincode auto-lookup
+  const handlePincodeLookup = useCallback(async (pincode: string) => {
+    if (!/^[1-9][0-9]{5}$/.test(pincode)) { setPincodeDistrict(''); return; }
+    setPincodeLoading(true);
+    const result = await lookupPincode(pincode);
+    setPincodeLoading(false);
+    if (result) {
+      setAddress((a) => ({ ...a, city: result.city, state: result.state }));
+      setPincodeDistrict(result.district);
+    } else {
+      setPincodeDistrict('');
+    }
+  }, []);
+
+  useEffect(() => {
+    const pin = address.postal_code;
+    if (pin.length === 6) {
+      const t = setTimeout(() => handlePincodeLookup(pin), 300);
+      return () => clearTimeout(t);
+    } else { setPincodeDistrict(''); }
+  }, [address.postal_code, handlePincodeLookup]);
+
+  // Reverse geocode from lat/lng
+  const reverseGeocode = useCallback(async () => {
+    if (!geo.location) return;
+    setReverseGeoLoading(true);
+    try {
+      const { latitude, longitude } = geo.location;
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&addressdetails=1`,
+        { headers: { 'Accept-Language': 'en' } },
+      );
+      const data = await res.json();
+      const a = data.address || {};
+      setAddress((prev) => ({
+        ...prev,
+        address_line1: [a.road, a.neighbourhood, a.suburb].filter(Boolean).join(', ') || '',
+        city: a.city || a.town || a.village || a.county || '',
+        state: a.state || '',
+        postal_code: a.postcode || '',
+      }));
+      if (a.postcode) setPincodeDistrict(a.state_district || a.county || '');
+    } catch { /* silent */ }
+    setReverseGeoLoading(false);
+  }, [geo.location]);
+
+  // Auto-fill address when location is granted
+  useEffect(() => {
+    if (geo.status === 'granted' && geo.location && !address.address_line1) {
+      reverseGeocode();
+    }
+  }, [geo.status, geo.location, reverseGeocode, address.address_line1]);
+
+  // ─── Audio Recording ──────────────────────────────────────
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ORDER_CONFIG.AUDIO_MIME_TYPES.find((m) => MediaRecorder.isTypeSupported(m)) || 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+      // Auto-stop after max duration
+      setTimeout(() => { if (mediaRecorderRef.current?.state === 'recording') stopRecording(); }, ORDER_CONFIG.AUDIO_MAX_DURATION_SECONDS * 1000);
+    } catch { /* permission denied or unavailable */ }
+  };
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  };
+
+  const uploadAudioToCloudinary = async (): Promise<string> => {
+    if (audioCloudUrl) return audioCloudUrl;
+    if (!audioBlob) return '';
+    setUploadingAudio(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', audioBlob, 'measurement_audio.webm');
+      const res = await api.post('/uploads/audio', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = res.data?.data?.url || '';
+      setAudioCloudUrl(url);
+      setUploadingAudio(false);
+      return url;
+    } catch {
+      setUploadingAudio(false);
+      return '';
+    }
+  };
 
   const stepIndex = STEPS.findIndex((s) => s.key === step);
 
+  const templatePrice = selectedTemplate?.template_type.base_price ?? 0;
+  const pickupFee = deliveryMethod === 'pickup' ? ORDER_CONFIG.PICKUP_FEE : 0;
+  const totalAmount = Number(templatePrice) + pickupFee;
+
+  const measurementDone = (): boolean => {
+    if (measurementMethod === 'reference_clothing') return referenceConfirmed;
+    // All fields mandatory
+    return (Object.keys(emptyMeasurements) as (keyof Measurements)[]).every((k) => measurements[k].trim() !== '');
+  };
+
+  const addressDone = (): boolean =>
+    address.flat_number.trim() !== '' &&
+    address.address_line1.trim() !== '' &&
+    address.city.trim() !== '' &&
+    address.state.trim() !== '' &&
+    /^[1-9][0-9]{5}$/.test(address.postal_code) &&
+    /^[6-9]\d{9}$/.test(contactPhone) &&
+    contactEmail.includes('@');
+
   const canNext = (): boolean => {
     if (step === 'template') return !!selectedTemplate;
-    if (step === 'subtypes') {
-      if (selectedSubTypes.length === 0) return false;
-      if (measurementMethod === 'reference_clothing') return referenceConfirmed;
-      const required: (keyof Measurements)[] = ['chest_cm', 'waist_cm', 'shoulder_width_cm'];
-      return required.every((k) => measurements[k].trim() !== '');
-    }
+    if (step === 'details') return measurementDone() && addressDone();
     return true;
   };
 
-  const goNext = () => {
-    const idx = stepIndex;
-    if (idx < STEPS.length - 1) setStep(STEPS[idx + 1].key);
-  };
-  const goBack = () => {
-    const idx = stepIndex;
-    if (idx > 0) setStep(STEPS[idx - 1].key);
-  };
+  const goNext = () => { if (stepIndex < STEPS.length - 1) setStep(STEPS[stepIndex + 1].key); };
+  const goBack = () => { if (stepIndex > 0) setStep(STEPS[stepIndex - 1].key); };
 
-  const toggleSubType = (st: SubType) => {
-    setSelectedSubTypes((prev) =>
-      prev.find((s) => s.id === st.id)
-        ? prev.filter((s) => s.id !== st.id)
-        : [...prev, st],
-    );
-  };
-
-  const setMeasure = (key: keyof Measurements, value: string) => {
+  const setAddr = (key: keyof Address, value: string) => setAddress((a) => ({ ...a, [key]: value }));
+  const setMeasure = (key: keyof Measurements, value: string) =>
     setMeasurements((prev) => ({ ...prev, [key]: value.replace(/[^\d.]/g, '') }));
+
+  // ─── Load Razorpay script ──────────────────────────────────
+  const loadRazorpay = (): Promise<boolean> =>
+    new Promise((resolve) => {
+      if (window.Razorpay) return resolve(true);
+      const s = document.createElement('script');
+      s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      s.onload = () => resolve(true);
+      s.onerror = () => resolve(false);
+      document.body.appendChild(s);
+    });
+
+  // ─── Place Order + Pay ─────────────────────────────────────
+  const handlePlaceOrder = async () => {
+    setPlacing(true);
+    setPayError('');
+
+    try {
+      // Upload audio if present
+      let audioFileUrl = audioCloudUrl;
+      if (audioBlob && !audioCloudUrl) {
+        audioFileUrl = await uploadAudioToCloudinary();
+      }
+
+      // 1. Create Razorpay order on backend
+      const { data: rzData } = await api.post('/payments/create-order', {
+        template_type_id: selectedTemplate!.template_type.id,
+        amount: totalAmount,
+      });
+      const { razorpay_order_id, amount, currency, key_id } = rzData.data;
+
+      // 2. Load Razorpay
+      const loaded = await loadRazorpay();
+      if (!loaded) { setPayError('Failed to load payment gateway. Please try again.'); setPlacing(false); return; }
+
+      const user = JSON.parse(localStorage.getItem('user') || '{}');
+
+      // 3. Open Razorpay checkout
+      const options = {
+        key: key_id,
+        amount,
+        currency,
+        name: 'StitchUp',
+        description: `Order — ${selectedTemplate!.template_type.type_name}`,
+        order_id: razorpay_order_id,
+        prefill: { name: `${user.first_name || ''} ${user.last_name || ''}`.trim(), email: contactEmail, contact: contactPhone },
+        theme: { color: '#0d9488' },
+        handler: async (response: any) => {
+          try {
+            await api.post('/payments/verify', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              template_type_id: selectedTemplate!.template_type.id,
+              measurement_method: measurementMethod,
+              measurements: measurementMethod === 'manual_measurements' ? measurements : undefined,
+              measurement_audio_url: audioFileUrl || undefined,
+              special_instructions: specialRequests || undefined,
+              delivery_flat_number: address.flat_number,
+              delivery_address_line1: address.address_line1,
+              delivery_city: address.city,
+              delivery_state: address.state,
+              delivery_postal_code: address.postal_code,
+              contact_phone: contactPhone,
+              contact_email: contactEmail,
+              delivery_method: deliveryMethod,
+              pickup_fee: pickupFee,
+            });
+            navigate('/dashboard', { state: { orderSuccess: true } });
+          } catch {
+            setPayError('Payment verified but order creation failed. Please contact support.');
+          }
+          setPlacing(false);
+        },
+        modal: {
+          ondismiss: () => { setPlacing(false); },
+        },
+      };
+      new window.Razorpay(options).open();
+    } catch (err: any) {
+      setPayError(err.response?.data?.error?.message || err.response?.data?.message || 'Failed to initiate payment.');
+      setPlacing(false);
+    }
   };
 
   // ─── Renderers ───────────────────────────────────────────────
@@ -136,12 +381,7 @@ export default function NewOrder() {
             {i < stepIndex ? <Check size={14} /> : i + 1}
           </div>
           {i < STEPS.length - 1 && (
-            <div
-              className={cn(
-                'w-10 h-0.5 mx-1',
-                i < stepIndex ? 'bg-teal-500' : 'bg-gray-200',
-              )}
-            />
+            <div className={cn('w-10 h-0.5 mx-1', i < stepIndex ? 'bg-teal-500' : 'bg-gray-200')} />
           )}
         </div>
       ))}
@@ -151,7 +391,14 @@ export default function NewOrder() {
   const renderTemplateStep = () => (
     <div>
       <h2 className="text-lg font-semibold text-gray-800 mb-1">What would you like to get stitched?</h2>
-      <p className="text-sm text-gray-500 mb-5">Choose a template to get started</p>
+      <p className="text-sm text-gray-500 mb-2">Choose a template to get started</p>
+
+      {/* Adults 12+ note */}
+      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-5">
+        <Info size={14} className="text-amber-600 shrink-0" />
+        <p className="text-xs text-amber-700">Stitching services are available <strong>only for adults (12+)</strong> on this platform.</p>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="animate-spin text-teal-600" size={28} />
@@ -162,10 +409,7 @@ export default function NewOrder() {
             <button
               key={t.template_type.id}
               type="button"
-              onClick={() => {
-                setSelectedTemplate(t);
-                setSelectedSubTypes([]);
-              }}
+              onClick={() => setSelectedTemplate(t)}
               className={cn(
                 'relative rounded-xl border-2 overflow-hidden text-left transition-all hover:shadow-md',
                 selectedTemplate?.template_type.id === t.template_type.id
@@ -174,24 +418,31 @@ export default function NewOrder() {
               )}
             >
               {t.template_type.image_url ? (
-                <img
-                  src={t.template_type.image_url}
-                  alt={t.template_type.type_name}
-                  className="w-full h-48 object-cover"
-                />
+                <img src={t.template_type.image_url} alt={t.template_type.type_name} className="w-full h-48 object-cover" />
               ) : (
                 <div className="w-full h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
                   <Package size={40} className="text-gray-300" />
                 </div>
               )}
               <div className="p-4">
-                <h3 className="font-semibold text-gray-800">{t.template_type.type_name}</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800">{t.template_type.type_name}</h3>
+                  {t.template_type.base_price != null && Number(t.template_type.base_price) > 0 ? (
+                    <span className="flex items-center text-sm font-bold text-teal-700">
+                      <IndianRupee size={13} />{Number(t.template_type.base_price).toLocaleString('en-IN')}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400 italic">Price TBD</span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{t.template_type.description}</p>
                 <div className="flex items-center gap-2 mt-2">
                   <span className="text-[10px] uppercase font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
                     {t.template_type.category}
                   </span>
-                  <span className="text-[10px] text-gray-400">{t.sub_types.length} parts</span>
+                  {t.template_type.estimated_hours && (
+                    <span className="text-[10px] text-gray-400">~{t.template_type.estimated_hours}h</span>
+                  )}
                 </div>
               </div>
               {selectedTemplate?.template_type.id === t.template_type.id && (
@@ -206,185 +457,363 @@ export default function NewOrder() {
     </div>
   );
 
-  const renderSubTypesStep = () => {
+  const renderDetailsStep = () => {
     if (!selectedTemplate) return null;
     return (
       <div className="space-y-8">
-        {/* ─── Part 1: Select Parts ─────────────────────────── */}
+        {/* ─── Section 1: Measurements ──────────────── */}
         <div>
-          <h2 className="text-lg font-semibold text-gray-800 mb-1">
-            Select parts of {selectedTemplate.template_type.type_name}
-          </h2>
-          <p className="text-sm text-gray-500 mb-5">
-            Choose which pieces you need stitched — you can pick individual parts or all of them
-          </p>
-
-          {/* Select all toggle */}
-          <button
-            type="button"
-            onClick={() =>
-              setSelectedSubTypes(
-                selectedSubTypes.length === selectedTemplate.sub_types.length
-                  ? []
-                  : [...selectedTemplate.sub_types],
-              )
-            }
-            className="text-xs font-medium text-teal-700 hover:text-teal-900 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors mb-4"
-          >
-            {selectedSubTypes.length === selectedTemplate.sub_types.length ? 'Deselect All' : 'Select All Parts'}
-          </button>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {selectedTemplate.sub_types.map((st) => {
-              const selected = selectedSubTypes.some((s) => s.id === st.id);
-              return (
-                <button
-                  key={st.id}
-                  type="button"
-                  onClick={() => toggleSubType(st)}
-                  className={cn(
-                    'relative rounded-xl border-2 overflow-hidden text-left transition-all hover:shadow-md',
-                    selected
-                      ? 'border-teal-500 ring-2 ring-teal-200'
-                      : 'border-gray-200 hover:border-gray-300',
-                  )}
-                >
-                  {st.image_url ? (
-                    <img
-                      src={st.image_url}
-                      alt={st.sub_type_name}
-                      className="w-full h-40 object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-40 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                      <Shirt size={32} className="text-gray-300" />
-                    </div>
-                  )}
-                  <div className="p-3">
-                    <h3 className="font-medium text-gray-800 text-sm">{st.sub_type_name}</h3>
-                    <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{st.description}</p>
-                  </div>
-                  {selected && (
-                    <div className="absolute top-3 right-3 w-6 h-6 rounded-full bg-teal-600 flex items-center justify-center">
-                      <Check size={14} className="text-white" />
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-semibold text-gray-800">How should we get your measurements?</h2>
+            <a
+              href={ORDER_CONFIG.MEASUREMENT_GUIDE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <ExternalLink size={12} /> Measurement Guide
+            </a>
           </div>
+          <p className="text-sm text-gray-500 mb-5">Choose the method that works best for you</p>
+
+          <div className="grid grid-cols-2 gap-3 mb-6">
+            <button
+              type="button"
+              onClick={() => { setMeasurementMethod('manual_measurements'); setReferenceConfirmed(false); }}
+              className={cn(
+                'rounded-xl border-2 p-4 text-left transition-all',
+                measurementMethod === 'manual_measurements'
+                  ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300',
+              )}
+            >
+              <Ruler size={20} className={measurementMethod === 'manual_measurements' ? 'text-teal-600' : 'text-gray-400'} />
+              <p className="font-medium text-sm mt-2">Enter Measurements</p>
+              <p className="text-xs text-gray-500 mt-0.5">Provide your body measurements manually</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMeasurementMethod('reference_clothing')}
+              className={cn(
+                'rounded-xl border-2 p-4 text-left transition-all',
+                measurementMethod === 'reference_clothing'
+                  ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-gray-300',
+              )}
+            >
+              <Shirt size={20} className={measurementMethod === 'reference_clothing' ? 'text-amber-600' : 'text-gray-400'} />
+              <p className="font-medium text-sm mt-2">Reference Clothing</p>
+              <p className="text-xs text-gray-500 mt-0.5">Send similar existing clothes to the tailor</p>
+            </button>
+          </div>
+
+          {measurementMethod === 'manual_measurements' && (
+            <div className="space-y-4">
+              <p className="text-xs text-gray-400">All fields are mandatory <span className="text-red-400">*</span></p>
+              <div className="grid grid-cols-2 gap-3">
+                {(Object.keys(measurementLabels) as (keyof Measurements)[]).map((key) => (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      {measurementLabels[key]} <span className="text-red-400">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={measurements[key]}
+                      onChange={(e) => setMeasure(key, e.target.value)}
+                      placeholder="0.0"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Audio recording option */}
+              <div className="rounded-xl border border-gray-200 p-4 mt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Mic size={16} className="text-teal-600" />
+                  <p className="text-sm font-medium text-gray-700">Record Audio Note (optional)</p>
+                </div>
+                <p className="text-xs text-gray-500 mb-3">
+                  Prefer to speak your measurements or instructions? Record an audio note (max {ORDER_CONFIG.AUDIO_MAX_DURATION_SECONDS / 60} min) — we'll share it with the tailor.
+                </p>
+                <div className="flex items-center gap-3">
+                  {!isRecording && !audioBlob && (
+                    <button
+                      type="button"
+                      onClick={startRecording}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 transition-colors"
+                    >
+                      <Mic size={14} /> Start Recording
+                    </button>
+                  )}
+                  {isRecording && (
+                    <button
+                      type="button"
+                      onClick={stopRecording}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium animate-pulse"
+                    >
+                      <MicOff size={14} /> Stop Recording
+                    </button>
+                  )}
+                  {audioUrl && !isRecording && (
+                    <div className="flex items-center gap-3 flex-1">
+                      <audio src={audioUrl} controls className="h-9 flex-1" />
+                      <button
+                        type="button"
+                        onClick={() => { setAudioBlob(null); setAudioUrl(null); setAudioCloudUrl(''); }}
+                        className="text-xs text-red-600 hover:text-red-800 font-medium"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {uploadingAudio && (
+                  <p className="text-xs text-gray-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Uploading audio...</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {measurementMethod === 'reference_clothing' && (
+            <div className="space-y-4">
+              <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
+                <div className="flex gap-3">
+                  <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold text-sm text-amber-800">Important — Please read carefully</p>
+                    <ul className="mt-2 space-y-1.5 text-xs text-amber-700">
+                      <li>• You must have <strong>exactly similar clothes</strong> that match the style you're ordering.</li>
+                      <li>• The tailor will measure directly from your reference clothing — any mismatch will cause incorrect sizing.</li>
+                      <li>• For example, ordering a kurta? Send a kurta — <strong>not a shirt or t-shirt</strong>.</li>
+                      <li>• You'll need to deliver the reference clothes to the tailor before stitching begins.</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <div className={cn(
+                  'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors',
+                  referenceConfirmed ? 'bg-teal-600 border-teal-600' : 'border-gray-300 group-hover:border-gray-400',
+                )}>
+                  {referenceConfirmed && <Check size={12} className="text-white" />}
+                </div>
+                <span className="text-sm text-gray-700">
+                  I confirm that I have <strong>exactly similar clothes</strong> and will provide them to the tailor.
+                </span>
+                <input type="checkbox" className="hidden" checked={referenceConfirmed} onChange={(e) => setReferenceConfirmed(e.target.checked)} />
+              </label>
+            </div>
+          )}
         </div>
 
-        {/* ─── Part 2: Measurements (shown after selecting at least one subtype) ── */}
-        {selectedSubTypes.length > 0 && (
+        {/* ─── Section 2: Special Requests (shown after measurement is done) ── */}
+        {measurementDone() && (
           <div className="border-t border-gray-200 pt-6">
-            <h2 className="text-lg font-semibold text-gray-800 mb-1">How should we get your measurements?</h2>
-            <p className="text-sm text-gray-500 mb-5">Choose the method that works best for you</p>
+            <div className="flex items-center gap-2 mb-2">
+              <MessageSquare size={16} className="text-teal-600" />
+              <h2 className="text-lg font-semibold text-gray-800">Special Requests</h2>
+            </div>
+            <p className="text-sm text-gray-500 mb-3">Any additional instructions, design preferences, or notes for the tailor?</p>
+            <textarea
+              value={specialRequests}
+              onChange={(e) => setSpecialRequests(e.target.value)}
+              maxLength={1000}
+              rows={4}
+              placeholder="e.g. Slightly loose fit around the waist, add a pocket on the left side, use matching buttons..."
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent resize-none"
+            />
+            <p className="text-xs text-gray-400 text-right mt-1">{specialRequests.length}/1000</p>
+          </div>
+        )}
 
-            {/* Method toggle */}
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              <button
-                type="button"
-                onClick={() => {
-                  setMeasurementMethod('manual_measurements');
-                  setReferenceConfirmed(false);
-                }}
-                className={cn(
-                  'rounded-xl border-2 p-4 text-left transition-all',
-                  measurementMethod === 'manual_measurements'
-                    ? 'border-teal-500 bg-teal-50'
-                    : 'border-gray-200 hover:border-gray-300',
-                )}
-              >
-                <Ruler size={20} className={measurementMethod === 'manual_measurements' ? 'text-teal-600' : 'text-gray-400'} />
-                <p className="font-medium text-sm mt-2">Enter Measurements</p>
-                <p className="text-xs text-gray-500 mt-0.5">Provide your body measurements manually</p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setMeasurementMethod('reference_clothing')}
-                className={cn(
-                  'rounded-xl border-2 p-4 text-left transition-all',
-                  measurementMethod === 'reference_clothing'
-                    ? 'border-amber-500 bg-amber-50'
-                    : 'border-gray-200 hover:border-gray-300',
-                )}
-              >
-                <Shirt size={20} className={measurementMethod === 'reference_clothing' ? 'text-amber-600' : 'text-gray-400'} />
-                <p className="font-medium text-sm mt-2">Reference Clothing</p>
-                <p className="text-xs text-gray-500 mt-0.5">Send similar existing clothes to the tailor</p>
-              </button>
+        {/* ─── Section 3: Delivery Address + Contact (shown after measurement) ── */}
+        {measurementDone() && (
+          <div className="border-t border-gray-200 pt-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <MapPin size={16} className="text-teal-600" />
+                <h2 className="text-lg font-semibold text-gray-800">Delivery Address & Contact</h2>
+              </div>
+              {geo.status === 'idle' && (
+                <button
+                  type="button"
+                  onClick={geo.requestLocation}
+                  className="flex items-center gap-1 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  <LocateFixed size={12} /> Auto-detect
+                </button>
+              )}
+              {geo.status === 'loading' && (
+                <span className="flex items-center gap-1 text-xs text-gray-400">
+                  <Loader2 size={12} className="animate-spin" /> Detecting...
+                </span>
+              )}
+              {reverseGeoLoading && (
+                <span className="flex items-center gap-1 text-xs text-gray-400">
+                  <Loader2 size={12} className="animate-spin" /> Fetching address...
+                </span>
+              )}
             </div>
 
-            {/* Manual measurements form */}
-            {measurementMethod === 'manual_measurements' && (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-400">Fields marked * are required</p>
-                <div className="grid grid-cols-2 gap-3">
-                  {(Object.keys(measurementLabels) as (keyof Measurements)[]).map((key) => {
-                    const required = ['chest_cm', 'waist_cm', 'shoulder_width_cm'].includes(key);
-                    return (
-                      <div key={key}>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          {measurementLabels[key]} {required && <span className="text-red-400">*</span>}
-                        </label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={measurements[key]}
-                          onChange={(e) => setMeasure(key, e.target.value)}
-                          placeholder="0.0"
-                          className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
-                        />
-                      </div>
-                    );
-                  })}
+            {geo.status === 'granted' && geo.location && (
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                  <p className="text-[10px] uppercase text-gray-400 font-medium">Lat</p>
+                  <p className="text-xs text-gray-800 font-mono">{geo.location.latitude.toFixed(6)}</p>
+                </div>
+                <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                  <p className="text-[10px] uppercase text-gray-400 font-medium">Lng</p>
+                  <p className="text-xs text-gray-800 font-mono">{geo.location.longitude.toFixed(6)}</p>
+                </div>
+                <div className="bg-teal-50 rounded-lg border border-teal-200 px-3 py-2">
+                  <p className="text-[10px] uppercase text-teal-600 font-medium">DigiPIN</p>
+                  <p className="text-xs text-teal-800 font-semibold font-mono">{geo.location.digipin}</p>
                 </div>
               </div>
             )}
 
-            {/* Reference clothing option */}
-            {measurementMethod === 'reference_clothing' && (
-              <div className="space-y-4">
-                {/* Warning banner */}
-                <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
-                  <div className="flex gap-3">
-                    <AlertTriangle size={20} className="text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <p className="font-semibold text-sm text-amber-800">Important — Please read carefully</p>
-                      <ul className="mt-2 space-y-1.5 text-xs text-amber-700">
-                        <li>• You must have <strong>exactly similar clothes</strong> that match the style you're ordering.</li>
-                        <li>• The tailor will measure directly from your reference clothing — any mismatch in style will result in incorrect sizing.</li>
-                        <li>• For example, if you're ordering a kurta, send a kurta that fits you well — <strong>not a shirt or t-shirt</strong>.</li>
-                        <li>• You'll need to deliver the reference clothes to the tailor before stitching begins.</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Confirmation checkbox */}
-                <label className="flex items-start gap-3 cursor-pointer group">
-                  <div
-                    className={cn(
-                      'w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 mt-0.5 transition-colors',
-                      referenceConfirmed
-                        ? 'bg-teal-600 border-teal-600'
-                        : 'border-gray-300 group-hover:border-gray-400',
-                    )}
-                  >
-                    {referenceConfirmed && <Check size={12} className="text-white" />}
-                  </div>
-                  <span className="text-sm text-gray-700">
-                    I confirm that I have <strong>exactly similar clothes</strong> matching the selected template and will provide them to the tailor for measurements.
-                  </span>
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Flat / House No. <span className="text-red-400">*</span>
+                  </label>
                   <input
-                    type="checkbox"
-                    className="hidden"
-                    checked={referenceConfirmed}
-                    onChange={(e) => setReferenceConfirmed(e.target.checked)}
+                    type="text"
+                    value={address.flat_number}
+                    onChange={(e) => setAddr('flat_number', e.target.value)}
+                    placeholder="A-201"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
                   />
-                </label>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Street / Locality <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={address.address_line1}
+                    onChange={(e) => setAddr('address_line1', e.target.value)}
+                    placeholder="MG Road, Andheri West"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <div>
+                <div className="relative">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    PIN Code <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={address.postal_code}
+                    onChange={(e) => setAddr('postal_code', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="400001"
+                    maxLength={6}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                  {pincodeLoading && <Loader2 size={14} className="absolute right-3 top-8 animate-spin text-teal-500" />}
+                </div>
+                {pincodeDistrict && (
+                  <p className="text-xs text-teal-600 mt-1 flex items-center gap-1"><MapPin size={10} /> {pincodeDistrict}</p>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">City <span className="text-red-400">*</span></label>
+                  <input
+                    type="text"
+                    value={address.city}
+                    onChange={(e) => setAddr('city', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">State <span className="text-red-400">*</span></label>
+                  <input
+                    type="text"
+                    value={address.state}
+                    onChange={(e) => setAddr('state', e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              {/* Contact */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                    <Phone size={11} /> Phone <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    placeholder="9876543210"
+                    maxLength={10}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1 flex items-center gap-1">
+                    <Mail size={11} /> Email <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="you@email.com"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Section 4: Material Delivery Method ── */}
+        {measurementDone() && addressDone() && (
+          <div className="border-t border-gray-200 pt-6">
+            <h2 className="text-lg font-semibold text-gray-800 mb-1">How will you send your material/clothes?</h2>
+            <p className="text-sm text-gray-500 mb-4">Choose how you'd like to provide your fabric or reference clothing to the tailor</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setDeliveryMethod('self_parcel')}
+                className={cn(
+                  'rounded-xl border-2 p-4 text-left transition-all',
+                  deliveryMethod === 'self_parcel'
+                    ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300',
+                )}
+              >
+                <PackageOpen size={20} className={deliveryMethod === 'self_parcel' ? 'text-teal-600' : 'text-gray-400'} />
+                <p className="font-medium text-sm mt-2">Self Parcel (Free)</p>
+                <p className="text-xs text-gray-500 mt-0.5">You courier/parcel the material to our address within {ORDER_CONFIG.PARCEL_DEADLINE_DAYS} days of placing the order</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeliveryMethod('pickup')}
+                className={cn(
+                  'rounded-xl border-2 p-4 text-left transition-all',
+                  deliveryMethod === 'pickup'
+                    ? 'border-teal-500 bg-teal-50' : 'border-gray-200 hover:border-gray-300',
+                )}
+              >
+                <Truck size={20} className={deliveryMethod === 'pickup' ? 'text-teal-600' : 'text-gray-400'} />
+                <p className="font-medium text-sm mt-2">Pickup by our delivery</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Our partner picks up from your address — <strong className="text-teal-700">₹{ORDER_CONFIG.PICKUP_FEE} extra</strong>
+                </p>
+              </button>
+            </div>
+
+            {deliveryMethod === 'self_parcel' && (
+              <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <AlertTriangle size={14} className="text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700">
+                  Material must reach us within <strong>{ORDER_CONFIG.PARCEL_DEADLINE_DAYS} days</strong> of placing this order. If not received, the order will be <strong>auto-cancelled</strong> and payment refunded.
+                </p>
               </div>
             )}
           </div>
@@ -396,7 +825,13 @@ export default function NewOrder() {
   const renderReviewStep = () => (
     <div>
       <h2 className="text-lg font-semibold text-gray-800 mb-1">Review your order</h2>
-      <p className="text-sm text-gray-500 mb-5">Confirm everything looks correct before placing</p>
+      <p className="text-sm text-gray-500 mb-5">Confirm everything looks correct before paying</p>
+
+      {payError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg flex items-center gap-2 mb-4">
+          <AlertTriangle size={16} /> {payError}
+        </div>
+      )}
 
       <div className="space-y-4">
         {/* Template */}
@@ -404,34 +839,15 @@ export default function NewOrder() {
           <p className="text-xs uppercase font-medium text-gray-400 mb-2">Template</p>
           <div className="flex items-center gap-3">
             {selectedTemplate?.template_type.image_url && (
-              <img
-                src={selectedTemplate.template_type.image_url}
-                alt=""
-                className="w-14 h-14 rounded-lg object-cover"
-              />
+              <img src={selectedTemplate.template_type.image_url} alt="" className="w-14 h-14 rounded-lg object-cover" />
             )}
-            <div>
+            <div className="flex-1">
               <p className="font-semibold text-gray-800">{selectedTemplate?.template_type.type_name}</p>
               <p className="text-xs text-gray-500">{selectedTemplate?.template_type.category}</p>
             </div>
-          </div>
-        </div>
-
-        {/* Subtypes */}
-        <div className="rounded-xl border border-gray-200 p-4">
-          <p className="text-xs uppercase font-medium text-gray-400 mb-2">Selected Parts</p>
-          <div className="space-y-2">
-            {selectedSubTypes.map((st) => (
-              <div key={st.id} className="flex items-center gap-3">
-                {st.image_url && (
-                  <img src={st.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
-                )}
-                <div>
-                  <p className="text-sm font-medium text-gray-700">{st.sub_type_name}</p>
-                  <p className="text-xs text-gray-400">{st.description}</p>
-                </div>
-              </div>
-            ))}
+            <span className="flex items-center text-lg font-bold text-teal-700">
+              <IndianRupee size={15} />{Number(templatePrice).toLocaleString('en-IN')}
+            </span>
           </div>
         </div>
 
@@ -453,6 +869,12 @@ export default function NewOrder() {
                     </div>
                   ))}
               </div>
+              {audioUrl && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Mic size={12} className="text-teal-600" />
+                  <span className="text-xs text-gray-500">Audio note attached</span>
+                </div>
+              )}
             </div>
           ) : (
             <p className="text-sm font-medium text-amber-700 flex items-center gap-1.5">
@@ -460,6 +882,62 @@ export default function NewOrder() {
               <span className="text-xs text-gray-400 ml-1">— tailor will measure from your clothes</span>
             </p>
           )}
+        </div>
+
+        {/* Special requests */}
+        {specialRequests && (
+          <div className="rounded-xl border border-gray-200 p-4">
+            <p className="text-xs uppercase font-medium text-gray-400 mb-2">Special Requests</p>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap">{specialRequests}</p>
+          </div>
+        )}
+
+        {/* Delivery address */}
+        <div className="rounded-xl border border-gray-200 p-4">
+          <p className="text-xs uppercase font-medium text-gray-400 mb-2">Delivery Address</p>
+          <p className="text-sm text-gray-700">{address.flat_number}, {address.address_line1}</p>
+          <p className="text-sm text-gray-500">{address.city}, {address.state} — {address.postal_code}</p>
+          <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><Phone size={10} /> {contactPhone}</span>
+            <span className="flex items-center gap-1"><Mail size={10} /> {contactEmail}</span>
+          </div>
+        </div>
+
+        {/* Delivery method */}
+        <div className="rounded-xl border border-gray-200 p-4">
+          <p className="text-xs uppercase font-medium text-gray-400 mb-2">Material Delivery</p>
+          {deliveryMethod === 'pickup' ? (
+            <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <Truck size={14} className="text-teal-600" /> Pickup by our delivery — ₹{ORDER_CONFIG.PICKUP_FEE}
+            </p>
+          ) : (
+            <p className="text-sm font-medium text-gray-700 flex items-center gap-1.5">
+              <PackageOpen size={14} className="text-teal-600" /> Self Parcel — within {ORDER_CONFIG.PARCEL_DEADLINE_DAYS} days
+            </p>
+          )}
+        </div>
+
+        {/* Price summary */}
+        <div className="rounded-xl border-2 border-teal-200 bg-teal-50 p-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">Stitching ({selectedTemplate?.template_type.type_name})</span>
+              <span className="text-gray-800 font-medium flex items-center"><IndianRupee size={12} />{Number(templatePrice).toLocaleString('en-IN')}</span>
+            </div>
+            {pickupFee > 0 && (
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-600">Pickup fee</span>
+                <span className="text-gray-800 font-medium flex items-center"><IndianRupee size={12} />{pickupFee}</span>
+              </div>
+            )}
+            <div className="border-t border-teal-200 pt-1.5 flex items-center justify-between">
+              <p className="text-sm font-semibold text-gray-700">Total</p>
+              <span className="flex items-center text-xl font-bold text-teal-700">
+                <IndianRupee size={17} />{totalAmount.toLocaleString('en-IN')}
+              </span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">Fixed price. No hidden charges.</p>
         </div>
       </div>
     </div>
@@ -477,9 +955,7 @@ export default function NewOrder() {
           >
             <ChevronLeft size={18} /> {step === 'template' ? 'Dashboard' : 'Back'}
           </button>
-          <p className="text-sm font-medium text-gray-700">
-            {STEPS[stepIndex].label}
-          </p>
+          <p className="text-sm font-medium text-gray-700">{STEPS[stepIndex].label}</p>
           <div className="w-16" />
         </div>
       </div>
@@ -488,14 +964,13 @@ export default function NewOrder() {
         {renderStepIndicator()}
 
         {step === 'template' && renderTemplateStep()}
-        {step === 'subtypes' && renderSubTypesStep()}
+        {step === 'details' && renderDetailsStep()}
         {step === 'review' && renderReviewStep()}
       </div>
 
       {/* ─── Floating bottom navigation bar ──────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/90 backdrop-blur border-t border-gray-200">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          {/* Back button */}
           <button
             type="button"
             onClick={() => (step === 'template' ? navigate('/dashboard') : goBack())}
@@ -505,22 +980,19 @@ export default function NewOrder() {
             {step === 'template' ? 'Dashboard' : 'Back'}
           </button>
 
-          {/* Step indicator */}
           <span className="text-xs text-gray-400 hidden sm:block">
             Step {stepIndex + 1} of {STEPS.length}
           </span>
 
-          {/* Continue / Place Order */}
           {step === 'review' ? (
             <button
               type="button"
-              onClick={() => {
-                // TODO: integrate with order API once auth flow is ready
-                alert('Order flow preview — full API integration coming next!');
-              }}
-              className="flex items-center gap-1 px-6 py-2.5 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+              disabled={placing}
+              onClick={handlePlaceOrder}
+              className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:bg-teal-400"
             >
-              Place Order
+              {placing ? <Loader2 size={16} className="animate-spin" /> : <IndianRupee size={14} />}
+              {placing ? 'Processing...' : `Pay ₹${totalAmount.toLocaleString('en-IN')}`}
             </button>
           ) : (
             <button

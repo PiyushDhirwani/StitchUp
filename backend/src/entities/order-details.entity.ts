@@ -36,8 +36,14 @@ export class OrderDetails {
   })
   measurement_method: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  measurement_audio_url: string;
+
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   total_fabric_length_meters: number;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  delivery_flat_number: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   delivery_address_line1: string;
@@ -53,6 +59,22 @@ export class OrderDetails {
 
   @Column({ type: 'varchar', length: 20, nullable: true })
   delivery_postal_code: string;
+
+  @Column({ type: 'varchar', length: 15, nullable: true })
+  contact_phone: string;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  contact_email: string;
+
+  @Column({
+    type: 'enum',
+    enum: ['pickup', 'self_parcel'],
+    default: 'self_parcel',
+  })
+  delivery_method: string;
+
+  @Column({ type: 'decimal', precision: 8, scale: 2, default: 0 })
+  pickup_fee: number;
 
   @Column({ type: 'boolean', default: true })
   is_delivery_same_as_profile: boolean;

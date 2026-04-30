@@ -12,6 +12,8 @@ import { TemplatesModule } from './modules/templates/templates.module';
 import { PricingModule } from './modules/pricing/pricing.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { SupportModule } from './modules/support/support.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -40,6 +42,8 @@ import { SupportModule } from './modules/support/support.module';
     PricingModule,
     OrdersModule,
     SupportModule,
+    PaymentsModule,
+    UploadsModule,
   ],
   providers: [
     {
