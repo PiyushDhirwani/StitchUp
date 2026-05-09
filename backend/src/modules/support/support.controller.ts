@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Param,
   Body,
   Query,
@@ -64,5 +65,17 @@ export class SupportController {
     @CurrentUser() currentUser: any,
   ) {
     return this.supportService.getTicketDetails(ticketId, currentUser.id);
+  }
+
+  @Patch('tickets/:ticketId/resolve')
+  @ApiOperation({ summary: 'Mark own ticket as resolved' })
+  @ApiResponse({ status: 200, description: 'Ticket resolved' })
+  @ApiResponse({ status: 404, description: 'Ticket not found' })
+  async resolveTicket(
+    @Param('ticketId', ParseIntPipe) ticketId: number,
+    @CurrentUser() currentUser: any,
+    @Body() body: { resolution_notes?: string },
+  ) {
+    return this.supportService.resolveTicket(ticketId, currentUser.id, body.resolution_notes);
   }
 }

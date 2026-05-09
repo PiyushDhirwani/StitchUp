@@ -317,13 +317,26 @@ export class OrdersService {
         discount_amount: Number(order.discount_amount),
         final_amount: Number(order.final_amount),
       },
+      measurement_details: order.details ? {
+        method: order.details.measurement_method,
+        measurement_audio_url: order.details.measurement_audio_url || null,
+      } : null,
+      special_instructions: order.special_instructions || null,
+      special_instructions_audio_url: order.details?.special_instructions_audio_url || null,
       delivery_address: order.details ? {
+        flat_number: order.details.delivery_flat_number || null,
         address_line1: order.details.delivery_address_line1,
         address_line2: order.details.delivery_address_line2,
         city: order.details.delivery_city,
         state: order.details.delivery_state,
         postal_code: order.details.delivery_postal_code,
       } : null,
+      contact: order.details ? {
+        phone: order.details.contact_phone || null,
+        email: order.details.contact_email || null,
+      } : null,
+      delivery_method: order.details?.delivery_method || null,
+      pickup_fee: order.details ? Number(order.details.pickup_fee || 0) : 0,
       status_history: (order.status_history || [])
         .sort((a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime())
         .map((h) => ({

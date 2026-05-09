@@ -6,6 +6,8 @@ import Dashboard from '@/pages/Dashboard'
 import NewOrder from '@/pages/NewOrder'
 import SupportGrievance from '@/pages/SupportGrievance'
 import SupportFeedback from '@/pages/SupportFeedback'
+import OrderDetail from '@/pages/OrderDetail'
+import ExpressOrder from '@/pages/ExpressOrder'
 import { useInactivityLogout } from '@/hooks/useInactivityLogout'
 
 function App() {
@@ -19,6 +21,8 @@ function App() {
       <Route path="/verify-otp" element={<VerifyOtp />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/new-order" element={<NewOrder />} />
+      <Route path="/orders/:orderId" element={<OrderDetail />} />
+      <Route path="/express-order" element={<ExpressOrder />} />
       <Route path="/support/grievance" element={<SupportGrievance />} />
       <Route path="/support/feedback" element={<SupportFeedback />} />
     </Routes>

@@ -176,6 +176,7 @@ export class PaymentsService {
       body_measurement_id: bodyMeasurementId || undefined,
       measurement_method: dto.measurement_method,
       measurement_audio_url: dto.measurement_audio_url || undefined,
+      special_instructions_audio_url: dto.special_instructions_audio_url || undefined,
       delivery_flat_number: dto.delivery_flat_number,
       delivery_address_line1: dto.delivery_address_line1,
       delivery_city: dto.delivery_city,

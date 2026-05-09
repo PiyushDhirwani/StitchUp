@@ -39,6 +39,9 @@ export class OrderDetails {
   @Column({ type: 'varchar', length: 500, nullable: true })
   measurement_audio_url: string;
 
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  special_instructions_audio_url: string;
+
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   total_fabric_length_meters: number;
 

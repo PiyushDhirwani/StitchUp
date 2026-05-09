@@ -100,6 +100,21 @@ export class SupportService {
     return { data: ticket };
   }
 
+  async resolveTicket(ticketId: number, userId: number, resolutionNotes?: string) {
+    const ticket = await this.ticketRepo.findOne({
+      where: { id: ticketId, raised_by: userId },
+    });
+    if (!ticket) {
+      throw new NotFoundException('Ticket not found');
+    }
+    ticket.ticket_status = 'resolved';
+    ticket.resolved_at = new Date();
+    if (resolutionNotes) ticket.resolution_notes = resolutionNotes;
+    ticket.resolution_type = 'self_resolved';
+    await this.ticketRepo.save(ticket);
+    return { message: 'Ticket marked as resolved', data: { id: ticket.id, ticket_status: 'resolved', resolved_at: ticket.resolved_at } };
+  }
+
   private async sendTicketConfirmationEmail(
     email: string,
     ticket: SupportTicket,

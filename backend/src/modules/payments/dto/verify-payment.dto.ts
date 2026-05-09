@@ -54,6 +54,11 @@ export class VerifyPaymentDto {
   @MaxLength(1000)
   special_instructions?: string;
 
+  @ApiPropertyOptional({ description: 'Cloudinary URL for audio recording of special instructions' })
+  @IsOptional()
+  @IsString()
+  special_instructions_audio_url?: string;
+
   @ApiProperty({ example: 'A-201' })
   @IsNotEmpty()
   @IsString()

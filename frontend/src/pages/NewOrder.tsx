@@ -21,6 +21,8 @@ import {
   ExternalLink,
   Phone,
   Mail,
+  CheckCircle2,
+  ClipboardList,
 } from 'lucide-react';
 import { templateService, type Template } from '@/services/templates';
 import { lookupPincode } from '@/services/pincode';
@@ -29,12 +31,13 @@ import { cn } from '@/lib/cn';
 import api from '@/services/api';
 import { ORDER_CONFIG } from '@/config/order.config';
 
-type Step = 'template' | 'details' | 'review';
+type Step = 'template' | 'details' | 'review' | 'confirmed';
 
 const STEPS: { key: Step; label: string }[] = [
   { key: 'template', label: 'Choose Template' },
   { key: 'details', label: 'Measurements & Details' },
   { key: 'review', label: 'Review & Pay' },
+  { key: 'confirmed', label: 'Order Confirmed' },
 ];
 
 type MeasurementMethod = 'manual_measurements' | 'reference_clothing';
@@ -117,6 +120,15 @@ export default function NewOrder() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
+  // Audio recording for special instructions
+  const [siIsRecording, setSiIsRecording] = useState(false);
+  const [siAudioBlob, setSiAudioBlob] = useState<Blob | null>(null);
+  const [siAudioUrl, setSiAudioUrl] = useState<string | null>(null);
+  const [siUploadingAudio, setSiUploadingAudio] = useState(false);
+  const [siAudioCloudUrl, setSiAudioCloudUrl] = useState('');
+  const siMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const siAudioChunksRef = useRef<Blob[]>([]);
+
   // Address + contact
   const [address, setAddress] = useState<Address>({ flat_number: '', address_line1: '', city: '', state: '', postal_code: '' });
   const [contactPhone, setContactPhone] = useState('');
@@ -131,6 +143,7 @@ export default function NewOrder() {
   // Payment
   const [placing, setPlacing] = useState(false);
   const [payError, setPayError] = useState('');
+  const [confirmedOrderId, setConfirmedOrderId] = useState<number | null>(null);
 
   useEffect(() => {
     templateService
@@ -138,11 +151,27 @@ export default function NewOrder() {
       .then((res) => setTemplates(res.data.data))
       .catch(() => {})
       .finally(() => setLoading(false));
-    // Pre-fill contact from user profile
+    // Pre-fill contact and default address from user profile
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       if (u.phone_number) setContactPhone(u.phone_number);
       if (u.email) setContactEmail(u.email);
+      // Fetch default address from profile
+      if (u.user_id) {
+        api.get(`/user/details/${u.user_id}`).then((res) => {
+          const cp = res.data?.data?.consumer_profile || res.data?.consumer_profile;
+          if (cp) {
+            setAddress((a) => ({
+              ...a,
+              address_line1: cp.address_line1 || a.address_line1,
+              flat_number: cp.address_line2 || a.flat_number,
+              city: cp.city || a.city,
+              state: cp.state || a.state,
+              postal_code: cp.postal_code || a.postal_code,
+            }));
+          }
+        }).catch(() => {});
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -244,6 +273,50 @@ export default function NewOrder() {
     }
   };
 
+  // ─── Special Instructions Audio Recording ───────────────
+  const startSiRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = ORDER_CONFIG.AUDIO_MIME_TYPES.find((m) => MediaRecorder.isTypeSupported(m)) || 'audio/webm';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      siAudioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) siAudioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(siAudioChunksRef.current, { type: mimeType });
+        setSiAudioBlob(blob);
+        setSiAudioUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((t) => t.stop());
+      };
+      recorder.start();
+      siMediaRecorderRef.current = recorder;
+      setSiIsRecording(true);
+      setTimeout(() => { if (siMediaRecorderRef.current?.state === 'recording') stopSiRecording(); }, ORDER_CONFIG.AUDIO_MAX_DURATION_SECONDS * 1000);
+    } catch { /* permission denied or unavailable */ }
+  };
+
+  const stopSiRecording = () => {
+    siMediaRecorderRef.current?.stop();
+    setSiIsRecording(false);
+  };
+
+  const uploadSiAudioToCloudinary = async (): Promise<string> => {
+    if (siAudioCloudUrl) return siAudioCloudUrl;
+    if (!siAudioBlob) return '';
+    setSiUploadingAudio(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', siAudioBlob, 'special_instructions_audio.webm');
+      const res = await api.post('/uploads/audio', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const url = res.data?.data?.url || '';
+      setSiAudioCloudUrl(url);
+      setSiUploadingAudio(false);
+      return url;
+    } catch {
+      setSiUploadingAudio(false);
+      return '';
+    }
+  };
+
   const stepIndex = STEPS.findIndex((s) => s.key === step);
 
   const templatePrice = selectedTemplate?.template_type.base_price ?? 0;
@@ -295,10 +368,16 @@ export default function NewOrder() {
     setPayError('');
 
     try {
-      // Upload audio if present
+      // Upload measurement audio if present
       let audioFileUrl = audioCloudUrl;
       if (audioBlob && !audioCloudUrl) {
         audioFileUrl = await uploadAudioToCloudinary();
+      }
+
+      // Upload special instructions audio if present
+      let siAudioFileUrl = siAudioCloudUrl;
+      if (siAudioBlob && !siAudioCloudUrl) {
+        siAudioFileUrl = await uploadSiAudioToCloudinary();
       }
 
       // 1. Create Razorpay order on backend
@@ -326,7 +405,7 @@ export default function NewOrder() {
         theme: { color: '#0d9488' },
         handler: async (response: any) => {
           try {
-            await api.post('/payments/verify', {
+            const verifyRes = await api.post('/payments/verify', {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
@@ -335,6 +414,7 @@ export default function NewOrder() {
               measurements: measurementMethod === 'manual_measurements' ? measurements : undefined,
               measurement_audio_url: audioFileUrl || undefined,
               special_instructions: specialRequests || undefined,
+              special_instructions_audio_url: siAudioFileUrl || undefined,
               delivery_flat_number: address.flat_number,
               delivery_address_line1: address.address_line1,
               delivery_city: address.city,
@@ -345,7 +425,9 @@ export default function NewOrder() {
               delivery_method: deliveryMethod,
               pickup_fee: pickupFee,
             });
-            navigate('/dashboard', { state: { orderSuccess: true } });
+            const orderId = verifyRes.data?.data?.order_id || verifyRes.data?.order_id;
+            setConfirmedOrderId(orderId || null);
+            setStep('confirmed');
           } catch {
             setPayError('Payment verified but order creation failed. Please contact support.');
           }
@@ -613,7 +695,7 @@ export default function NewOrder() {
               <MessageSquare size={16} className="text-teal-600" />
               <h2 className="text-lg font-semibold text-gray-800">Special Requests</h2>
             </div>
-            <p className="text-sm text-gray-500 mb-3">Any additional instructions, design preferences, or notes for the tailor?</p>
+            <p className="text-sm text-gray-500 mb-3">Any additional instructions, design preferences, or notes for the tailor? Type below or record an audio note.</p>
             <textarea
               value={specialRequests}
               onChange={(e) => setSpecialRequests(e.target.value)}
@@ -623,6 +705,52 @@ export default function NewOrder() {
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent resize-none"
             />
             <p className="text-xs text-gray-400 text-right mt-1">{specialRequests.length}/1000</p>
+
+            {/* Audio recording for special instructions */}
+            <div className="rounded-xl border border-gray-200 p-4 mt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <Mic size={16} className="text-teal-600" />
+                <p className="text-sm font-medium text-gray-700">Record Audio Note (optional)</p>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">
+                Prefer to speak your special instructions? Record an audio note (max {ORDER_CONFIG.AUDIO_MAX_DURATION_SECONDS / 60} min) — we'll share it with the tailor.
+              </p>
+              <div className="flex items-center gap-3">
+                {!siIsRecording && !siAudioBlob && (
+                  <button
+                    type="button"
+                    onClick={startSiRecording}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-medium hover:bg-red-100 transition-colors"
+                  >
+                    <Mic size={14} /> Start Recording
+                  </button>
+                )}
+                {siIsRecording && (
+                  <button
+                    type="button"
+                    onClick={stopSiRecording}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-medium animate-pulse"
+                  >
+                    <MicOff size={14} /> Stop Recording
+                  </button>
+                )}
+                {siAudioUrl && !siIsRecording && (
+                  <div className="flex items-center gap-3 flex-1">
+                    <audio src={siAudioUrl} controls className="h-9 flex-1" />
+                    <button
+                      type="button"
+                      onClick={() => { setSiAudioBlob(null); setSiAudioUrl(null); setSiAudioCloudUrl(''); }}
+                      className="text-xs text-red-600 hover:text-red-800 font-medium"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+              {siUploadingAudio && (
+                <p className="text-xs text-gray-400 mt-2 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Uploading audio...</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -885,10 +1013,17 @@ export default function NewOrder() {
         </div>
 
         {/* Special requests */}
-        {specialRequests && (
+        {(specialRequests || siAudioUrl) && (
           <div className="rounded-xl border border-gray-200 p-4">
             <p className="text-xs uppercase font-medium text-gray-400 mb-2">Special Requests</p>
-            <p className="text-sm text-gray-700 whitespace-pre-wrap">{specialRequests}</p>
+            {specialRequests && <p className="text-sm text-gray-700 whitespace-pre-wrap">{specialRequests}</p>}
+            {siAudioUrl && (
+              <div className="mt-2 flex items-center gap-2">
+                <Mic size={12} className="text-teal-600" />
+                <span className="text-xs text-gray-500">Audio note attached</span>
+                <audio src={siAudioUrl} controls className="h-8 ml-2" />
+              </div>
+            )}
           </div>
         )}
 
@@ -943,74 +1078,137 @@ export default function NewOrder() {
     </div>
   );
 
+  const renderConfirmedStep = () => (
+    <div className="flex flex-col items-center text-center py-12">
+      <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6 animate-bounce">
+        <CheckCircle2 size={40} className="text-green-600" />
+      </div>
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">Order Confirmed!</h2>
+      <p className="text-gray-500 text-sm max-w-sm mb-2">
+        Your payment was successful and your order has been placed.
+      </p>
+      {confirmedOrderId && (
+        <p className="text-sm text-teal-700 font-medium mb-6">
+          Order ID: <span className="font-mono font-bold">#{confirmedOrderId}</span>
+        </p>
+      )}
+
+      <div className="bg-teal-50 rounded-2xl border border-teal-200 p-5 w-full max-w-sm mb-6">
+        <p className="text-sm text-teal-800 font-medium mb-1">What happens next?</p>
+        <ul className="text-xs text-teal-700 space-y-1.5 text-left">
+          {deliveryMethod === 'self_parcel' ? (
+            <>
+              <li>• Send your material/reference clothes within {ORDER_CONFIG.PARCEL_DEADLINE_DAYS} days</li>
+              <li>• Once received, a tailor will be assigned</li>
+              <li>• Track progress in your order history</li>
+            </>
+          ) : (
+            <>
+              <li>• Our delivery partner will pick up your material</li>
+              <li>• Once collected, a tailor will be assigned</li>
+              <li>• Track progress in your order history</li>
+            </>
+          )}
+        </ul>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          if (confirmedOrderId) {
+            navigate(`/orders/${confirmedOrderId}`);
+          } else {
+            navigate('/dashboard', { state: { orderSuccess: true } });
+          }
+        }}
+        className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors"
+      >
+        <ClipboardList size={16} /> Check Order Status
+      </button>
+
+      <button
+        type="button"
+        onClick={() => navigate('/dashboard')}
+        className="mt-3 text-sm text-gray-500 hover:text-gray-700 font-medium"
+      >
+        Back to Dashboard
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white pb-24">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-gray-100 px-4 py-3">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => (step === 'template' ? navigate('/dashboard') : goBack())}
-            className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
-          >
-            <ChevronLeft size={18} /> {step === 'template' ? 'Dashboard' : 'Back'}
-          </button>
-          <p className="text-sm font-medium text-gray-700">{STEPS[stepIndex].label}</p>
+          {step !== 'confirmed' ? (
+            <button
+              type="button"
+              onClick={() => (step === 'template' ? navigate('/dashboard') : goBack())}
+              className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"
+            >
+              <ChevronLeft size={18} /> {step === 'template' ? 'Dashboard' : 'Back'}
+            </button>
+          ) : <div className="w-16" />}
+          <p className="text-sm font-medium text-gray-700">{STEPS[stepIndex >= 0 ? stepIndex : 0].label}</p>
           <div className="w-16" />
         </div>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-6">
-        {renderStepIndicator()}
+        {step !== 'confirmed' && renderStepIndicator()}
 
         {step === 'template' && renderTemplateStep()}
         {step === 'details' && renderDetailsStep()}
         {step === 'review' && renderReviewStep()}
+        {step === 'confirmed' && renderConfirmedStep()}
       </div>
 
       {/* ─── Floating bottom navigation bar ──────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/90 backdrop-blur border-t border-gray-200">
-        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => (step === 'template' ? navigate('/dashboard') : goBack())}
-            className="flex items-center gap-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 transition-colors"
-          >
-            <ChevronLeft size={16} />
-            {step === 'template' ? 'Dashboard' : 'Back'}
-          </button>
-
-          <span className="text-xs text-gray-400 hidden sm:block">
-            Step {stepIndex + 1} of {STEPS.length}
-          </span>
-
-          {step === 'review' ? (
+      {step !== 'confirmed' && (
+        <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/90 backdrop-blur border-t border-gray-200">
+          <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
             <button
               type="button"
-              disabled={placing}
-              onClick={handlePlaceOrder}
-              className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:bg-teal-400"
+              onClick={() => (step === 'template' ? navigate('/dashboard') : goBack())}
+              className="flex items-center gap-1 px-4 py-2.5 rounded-xl text-sm font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 transition-colors"
             >
-              {placing ? <Loader2 size={16} className="animate-spin" /> : <IndianRupee size={14} />}
-              {placing ? 'Processing...' : `Pay ₹${totalAmount.toLocaleString('en-IN')}`}
+              <ChevronLeft size={16} />
+              {step === 'template' ? 'Dashboard' : 'Back'}
             </button>
-          ) : (
-            <button
-              type="button"
-              disabled={!canNext()}
-              onClick={goNext}
-              className={cn(
-                'flex items-center gap-1 px-5 py-2.5 rounded-xl font-medium text-sm transition-all',
-                canNext()
-                  ? 'bg-teal-600 hover:bg-teal-700 text-white'
-                  : 'bg-gray-100 text-gray-400 cursor-not-allowed',
-              )}
-            >
-              Continue <ChevronRight size={16} />
-            </button>
-          )}
+
+            <span className="text-xs text-gray-400 hidden sm:block">
+              Step {stepIndex + 1} of {STEPS.length}
+            </span>
+
+            {step === 'review' ? (
+              <button
+                type="button"
+                disabled={placing}
+                onClick={handlePlaceOrder}
+                className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl font-semibold text-sm bg-teal-600 hover:bg-teal-700 text-white transition-colors disabled:bg-teal-400"
+              >
+                {placing ? <Loader2 size={16} className="animate-spin" /> : <IndianRupee size={14} />}
+                {placing ? 'Processing...' : `Pay ₹${totalAmount.toLocaleString('en-IN')}`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={!canNext()}
+                onClick={goNext}
+                className={cn(
+                  'flex items-center gap-1 px-5 py-2.5 rounded-xl font-medium text-sm transition-all',
+                  canNext()
+                    ? 'bg-teal-600 hover:bg-teal-700 text-white'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed',
+                )}
+              >
+                Continue <ChevronRight size={16} />
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

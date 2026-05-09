@@ -9,6 +9,7 @@ import {
   Matches,
   IsEmail,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 
 export class CreateTicketDto {
   @ApiProperty({ example: 'quality_issue', enum: ['quality_issue', 'delay', 'miscommunication', 'payment_issue', 'material_issue', 'measurement_issue', 'refund_request', 'other'] })
@@ -41,6 +42,10 @@ export class CreateTicketDto {
 
   @ApiPropertyOptional({ example: 42, description: 'Related order ID (if applicable)' })
   @IsOptional()
+  @Transform(({ value }) => {
+    const n = Number(value);
+    return value === '' || value === null || value === undefined || isNaN(n) || n === 0 ? undefined : n;
+  })
   @IsInt()
   order_id?: number;
 

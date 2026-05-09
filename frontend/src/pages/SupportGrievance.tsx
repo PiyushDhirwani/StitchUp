@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -7,9 +7,11 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
+  Info,
 } from 'lucide-react';
 import { supportService } from '@/services/support';
 import { cn } from '@/lib/cn';
+import api from '@/services/api';
 
 const TICKET_TYPES = [
   { value: 'quality_issue', label: 'Quality Issue' },
@@ -21,6 +23,17 @@ const TICKET_TYPES = [
   { value: 'refund_request', label: 'Refund Request' },
   { value: 'other', label: 'Other' },
 ];
+
+const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+
+interface UserOrder {
+  order_id: number;
+  order_status: string;
+  items_summary: string;
+  final_amount: number;
+  delivery_date: string;
+  created_at: string;
+}
 
 export default function SupportGrievance() {
   const navigate = useNavigate();
@@ -40,7 +53,43 @@ export default function SupportGrievance() {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
+  // Orders for dropdown
+  const [userOrders, setUserOrders] = useState<UserOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [orderWarning, setOrderWarning] = useState('');
+
+  useEffect(() => {
+    if (user.user_id) {
+      api.get(`/orders/history/${user.user_id}?limit=100`)
+        .then((res) => {
+          const orders = res.data?.data?.orders || res.data?.orders || [];
+          setUserOrders(orders);
+        })
+        .catch(() => {})
+        .finally(() => setOrdersLoading(false));
+    } else {
+      setOrdersLoading(false);
+    }
+  }, []);
+
   const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const handleOrderSelect = (orderId: string) => {
+    set('order_id', orderId);
+    setOrderWarning('');
+    if (!orderId) return;
+    const order = userOrders.find((o) => String(o.order_id) === orderId);
+    if (order && order.delivery_date) {
+      const deliveredAt = new Date(order.delivery_date).getTime();
+      const now = Date.now();
+      if (now - deliveredAt < TWO_WEEKS_MS) {
+        const daysLeft = Math.ceil((TWO_WEEKS_MS - (now - deliveredAt)) / (24 * 60 * 60 * 1000));
+        setOrderWarning(
+          `This order was delivered less than 2 weeks ago. You can raise a grievance in ${daysLeft} day${daysLeft !== 1 ? 's' : ''}.`,
+        );
+      }
+    }
+  };
 
   const isValid =
     form.ticket_type &&
@@ -48,7 +97,8 @@ export default function SupportGrievance() {
     form.description.trim() &&
     form.email.trim() &&
     /^[6-9]\d{9}$/.test(form.phone_number) &&
-    attachment;
+    attachment &&
+    !orderWarning;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -193,33 +243,52 @@ export default function SupportGrievance() {
           </div>
         </div>
 
-        {/* Order ID + Priority */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Order ID <span className="text-gray-400 text-xs">(if applicable)</span>
-            </label>
-            <input
-              type="text"
-              value={form.order_id}
-              onChange={(e) => set('order_id', e.target.value.replace(/\D/g, ''))}
-              placeholder="e.g. 42"
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+        {/* Order Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Related Order <span className="text-gray-400 text-xs">(if applicable)</span>
+          </label>
+          {ordersLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+              <Loader2 size={14} className="animate-spin" /> Loading orders...
+            </div>
+          ) : userOrders.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2">No orders found</p>
+          ) : (
             <select
-              value={form.priority}
-              onChange={(e) => set('priority', e.target.value)}
+              value={form.order_id}
+              onChange={(e) => handleOrderSelect(e.target.value)}
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent bg-white"
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
+              <option value="">— Select an order (optional) —</option>
+              {userOrders.map((o) => (
+                <option key={o.order_id} value={o.order_id}>
+                  #{o.order_id} — {o.items_summary || 'Order'} — ₹{Number(o.final_amount).toLocaleString('en-IN')} ({o.order_status.replace(/_/g, ' ')})
+                </option>
+              ))}
             </select>
-          </div>
+          )}
+          {orderWarning && (
+            <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs px-3 py-2 rounded-lg">
+              <Info size={14} className="shrink-0 mt-0.5" />
+              <span>{orderWarning}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Priority */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Priority</label>
+          <select
+            value={form.priority}
+            onChange={(e) => set('priority', e.target.value)}
+            className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent bg-white"
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
         </div>
 
         {/* Description */}
