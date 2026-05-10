@@ -56,6 +56,8 @@ async function bootstrap() {
     .addTag('Appointments', 'Appointment Scheduling')
     .addTag('Notifications', 'User Notifications')
     .addTag('Support', 'Support Tickets')
+    .addTag('Shipping', 'Shiprocket Shipping & Delivery')
+    .addTag('Webhooks', 'External Webhooks')
     .build();
 
   const document = SwaggerModule.createDocument(app, swaggerConfig);
