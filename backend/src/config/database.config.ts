@@ -12,7 +12,13 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
   };
 
   if (url) {
-    return { ...base, url };
+    return {
+      ...base,
+      url,
+      extra: {
+        max: 1,
+      },
+    };
   }
 
   return {
