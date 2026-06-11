@@ -15,7 +15,7 @@ import { SupportModule } from './modules/support/support.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { RatingsModule } from './modules/ratings/ratings.module';
-import { ShippingModule } from './modules/shipping/shipping.module';
+// import { ShippingModule } from './modules/shipping/shipping.module';
 
 @Module({
   imports: [
@@ -47,7 +47,7 @@ import { ShippingModule } from './modules/shipping/shipping.module';
     PaymentsModule,
     UploadsModule,
     RatingsModule,
-    ShippingModule,
+    // ShippingModule,
   ],
   providers: [
     {
