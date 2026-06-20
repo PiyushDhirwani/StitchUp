@@ -67,6 +67,10 @@ async function bootstrap() {
     },
   });
 
+  // Health check — outside global prefix so Render/load balancers can reach it
+  const httpAdapter = app.getHttpAdapter();
+  httpAdapter.get('/health', (_req, res) => res.status(200).json({ status: 'ok' }));
+
   const port = configService.get<number>('PORT', 3000);
   await app.listen(port);
 
