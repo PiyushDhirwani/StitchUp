@@ -11,14 +11,13 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
     ssl: configService.get<string>('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
   };
 
+  const extra = {
+    max: 2,
+    connectionTimeoutMillis: 10000,
+  };
+
   if (url) {
-    return {
-      ...base,
-      url,
-      extra: {
-        max: 1,
-      },
-    };
+    return { ...base, url, extra };
   }
 
   return {
@@ -28,5 +27,6 @@ export const getDatabaseConfig = (configService: ConfigService): TypeOrmModuleOp
     username: configService.get<string>('DB_USERNAME', 'postgres'),
     password: configService.get<string>('DB_PASSWORD', ''),
     database: configService.get<string>('DB_NAME', 'postgres'),
+    extra,
   };
 };
