@@ -51,6 +51,7 @@ async function bootstrap() {
       },
       'access-token',
     )
+    .addTag('Debug', 'Debug & Testing Utilities')
     .addTag('Auth', 'Authentication & Registration')
     .addTag('Users', 'User Profile Management')
     .addTag('Templates', 'Template & Clothing Types')
