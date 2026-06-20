@@ -1,35 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
+  private fromEmail: string;
+  private fromName: string;
 
   constructor(private configService: ConfigService) {
-    const port = this.configService.get<number>('SMTP_PORT', 587);
-    this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST', 'smtp.gmail.com'),
-      port,
-      secure: port === 465,
-      auth: {
-        user: this.configService.get<string>('SMTP_USER'),
-        pass: this.configService.get<string>('SMTP_PASS'),
-      },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
-    });
+    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
+    this.fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
+    this.fromEmail = this.configService.get<string>('SMTP_USER', 'onboarding@resend.dev');
   }
 
   async sendOtp(to: string, otp: string): Promise<boolean> {
-    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
-    const fromEmail = this.configService.get<string>('SMTP_USER');
-
     try {
-      await this.transporter.sendMail({
-        from: `"${fromName}" <${fromEmail}>`,
+      await this.resend.emails.send({
+        from: `${this.fromName} <${this.fromEmail}>`,
         to,
         subject: 'StitchUp - Your Login Verification Code',
         html: `
@@ -54,12 +43,9 @@ export class EmailService {
   }
 
   async sendGeneric(to: string, subject: string, html: string): Promise<boolean> {
-    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
-    const fromEmail = this.configService.get<string>('SMTP_USER');
-
     try {
-      await this.transporter.sendMail({
-        from: `"${fromName}" <${fromEmail}>`,
+      await this.resend.emails.send({
+        from: `${this.fromName} <${this.fromEmail}>`,
         to,
         subject,
         html,
