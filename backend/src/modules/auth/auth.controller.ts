@@ -4,7 +4,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger
 import { AuthService } from './auth.service';
 import { RegisterConsumerDto } from './dto/register-consumer.dto';
 import { RegisterTailorDto } from './dto/register-tailor.dto';
-import { RequestOtpDto, VerifyOtpDto } from './dto/login.dto';
+import { RequestOtpDto, VerifyOtpDto, LoginPasswordDto } from './dto/login.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -48,5 +48,14 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Invalid OTP or session expired' })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto);
+  }
+
+  @Post('login/password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login with email and password' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid email or password' })
+  async loginWithPassword(@Body() dto: LoginPasswordDto) {
+    return this.authService.loginWithPassword(dto.email, dto.password);
   }
 }

@@ -185,6 +185,51 @@ export class AuthService {
     };
   }
 
+  async loginWithPassword(email: string, password: string) {
+    const user = await this.userRepo.findOne({
+      where: { email, is_active: true },
+      relations: ['role', 'consumer_profile', 'tailor_profile'],
+    });
+    if (!user) {
+      throw new UnauthorizedException({
+        error_code: ErrorCodes.USER_NOT_FOUND,
+        message: 'Invalid email or password',
+      });
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      throw new UnauthorizedException({
+        error_code: ErrorCodes.INVALID_OTP,
+        message: 'Invalid email or password',
+      });
+    }
+
+    user.last_login = new Date();
+    await this.userRepo.save(user);
+
+    const roleName = user.role.role_name;
+    const authToken = this.generateToken(user, roleName);
+    const refreshToken = this.generateRefreshToken(user, roleName);
+
+    return {
+      message: 'Login successful',
+      data: {
+        user_id: user.id,
+        email: user.email,
+        phone_number: user.phone_number,
+        first_name: user.first_name,
+        role: roleName,
+        consumer_id: user.consumer_profile?.id,
+        tailor_id: user.tailor_profile?.id,
+        last_login: user.last_login,
+        auth_token: authToken,
+        token_expiry_seconds: 86400,
+        refresh_token: refreshToken,
+      },
+    };
+  }
+
   async requestOtp(dto: RequestOtpDto) {
     const user = await this.userRepo.findOne({
       where: { email: dto.email, is_active: true },

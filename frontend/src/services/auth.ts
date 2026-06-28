@@ -78,4 +78,7 @@ export const authService = {
 
   verifyOtp: (data: VerifyOtpPayload) =>
     api.post('/auth/login/verify-otp', data),
+
+  loginWithPassword: (data: { email: string; password: string }) =>
+    api.post('/auth/login/password', data),
 };

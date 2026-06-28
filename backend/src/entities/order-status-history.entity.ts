@@ -4,6 +4,7 @@ import { User } from './user.entity';
 
 const ORDER_STATUSES = [
   'created',
+  'awaiting_material',
   'material_received',
   'tailor_assigned',
   'cutting_started',

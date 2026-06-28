@@ -26,7 +26,7 @@ export class OrderItem {
   @Column()
   template_type_id: number;
 
-  @Column()
+  @Column({ nullable: true })
   template_sub_type_id: number;
 
   @Column({ nullable: true })

@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, type FormEvent, type KeyboardEvent, type ClipboardEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Mail, Loader2, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { authService } from '@/services/auth';
-
-const OTP_LENGTH = 6;
+import { OtpInput, OTP_LENGTH } from '@/components/auth/OtpInput';
 
 export default function VerifyOtp() {
   const location = useLocation();
@@ -17,7 +16,6 @@ export default function VerifyOtp() {
   const [countdown, setCountdown] = useState(otp_expiry_seconds);
   const [resendCooldown, setResendCooldown] = useState(30);
   const [resending, setResending] = useState(false);
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     if (!session_id || !email) {
@@ -37,44 +35,10 @@ export default function VerifyOtp() {
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
-  useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
-
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const handleChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return;
-    const digit = value.slice(-1);
-    const newOtp = [...otp];
-    newOtp[index] = digit;
-    setOtp(newOtp);
-    if (digit && index < OTP_LENGTH - 1) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otp[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
-    }
-  };
-
-  const handlePaste = (e: ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, OTP_LENGTH);
-    if (!pasted) return;
-    const newOtp = [...otp];
-    for (let i = 0; i < pasted.length; i++) {
-      newOtp[i] = pasted[i];
-    }
-    setOtp(newOtp);
-    const focusIndex = Math.min(pasted.length, OTP_LENGTH - 1);
-    inputRefs.current[focusIndex]?.focus();
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -111,7 +75,6 @@ export default function VerifyOtp() {
         'Verification failed. Please try again.';
       setError(msg);
       setOtp(Array(OTP_LENGTH).fill(''));
-      inputRefs.current[0]?.focus();
     } finally {
       setLoading(false);
     }
@@ -129,7 +92,6 @@ export default function VerifyOtp() {
       setCountdown(newExpiry);
       setResendCooldown(30);
       setOtp(Array(OTP_LENGTH).fill(''));
-      inputRefs.current[0]?.focus();
     } catch {
       setError('Failed to resend OTP. Please try again.');
     } finally {
@@ -178,23 +140,8 @@ export default function VerifyOtp() {
           )}
 
           <form onSubmit={handleSubmit}>
-            {/* OTP inputs */}
-            <div className="flex gap-3 justify-center mb-6">
-              {otp.map((digit, i) => (
-                <input
-                  key={i}
-                  ref={(el) => { inputRefs.current[i] = el; }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={digit}
-                  onChange={(e) => handleChange(i, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(i, e)}
-                  onPaste={i === 0 ? handlePaste : undefined}
-                  className="w-12 h-14 text-center text-xl font-semibold bg-white border-2 border-gray-200 rounded-xl focus:outline-none focus:border-teal-500 focus:ring-2 focus:ring-teal-500/20 transition-all"
-                  disabled={loading || !!success}
-                />
-              ))}
+            <div className="mb-6">
+              <OtpInput otp={otp} setOtp={setOtp} disabled={loading || !!success} />
             </div>
 
             {/* Timer */}

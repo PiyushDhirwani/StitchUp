@@ -1,13 +1,9 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, Scissors, User, Loader2, MapPin, Check, X, Upload, FileText, LocateFixed } from 'lucide-react';
-import { authService } from '@/services/auth';
-import { lookupPincode } from '@/services/pincode';
-import { useGeolocation } from '@/hooks/useGeolocation';
-import { validators, type FieldErrors } from '@/lib/validate';
+import { Eye, EyeOff, Scissors, User, Loader2, Check, X, Upload, FileText, LocateFixed } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useRegister } from '@/hooks/useRegister';
+import { Input } from '@/components/ui/Input';
+import { PincodeRow } from '@/components/auth/PincodeRow';
 import { cn } from '@/lib/cn';
-
-type Role = 'consumer' | 'tailor';
 
 const passwordChecks = [
   { label: '8+ characters', test: (v: string) => v.length >= 8 },
@@ -18,176 +14,15 @@ const passwordChecks = [
 ];
 
 export default function Register() {
-  const navigate = useNavigate();
-  const [role, setRole] = useState<Role>('consumer');
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
-  const [pincodeLoading, setPincodeLoading] = useState(false);
-  const [pincodeDistrict, setPincodeDistrict] = useState('');
-  const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
-  const geo = useGeolocation();
-
-  const [form, setForm] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone_number: '',
-    password: '',
-    address_line1: '',
-    city: '',
-    state: '',
-    postal_code: '',
-    shop_name: '',
-    shop_address: '',
-    years_of_experience: '',
-    aadhar_number: '',
-  });
-
-  const set = (field: string, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (fieldErrors[field]) {
-      setFieldErrors((prev) => {
-        const next = { ...prev };
-        delete next[field];
-        return next;
-      });
-    }
-  };
-
-  const handlePincodeLookup = useCallback(async (pincode: string) => {
-    if (!/^[1-9][0-9]{5}$/.test(pincode)) {
-      setPincodeDistrict('');
-      return;
-    }
-    setPincodeLoading(true);
-    const result = await lookupPincode(pincode);
-    setPincodeLoading(false);
-    if (result) {
-      setForm((prev) => ({ ...prev, city: result.city, state: result.state }));
-      setPincodeDistrict(result.district);
-      setFieldErrors((prev) => {
-        const next = { ...prev };
-        delete next.city;
-        delete next.state;
-        delete next.postal_code;
-        return next;
-      });
-    } else {
-      setPincodeDistrict('');
-      setFieldErrors((prev) => ({ ...prev, postal_code: 'Invalid PIN code' }));
-    }
-  }, []);
-
-  useEffect(() => {
-    const pin = form.postal_code;
-    if (pin.length === 6) {
-      const timeout = setTimeout(() => handlePincodeLookup(pin), 300);
-      return () => clearTimeout(timeout);
-    } else {
-      setPincodeDistrict('');
-    }
-  }, [form.postal_code, handlePincodeLookup]);
-
-  const validateBeforeSubmit = (): boolean => {
-    const errors: FieldErrors = {};
-    if (!form.first_name.trim()) errors.first_name = 'Required';
-    if (!form.last_name.trim()) errors.last_name = 'Required';
-
-    const emailErr = validators.email(form.email);
-    if (emailErr) errors.email = emailErr;
-
-    const phoneErr = validators.phone(form.phone_number);
-    if (phoneErr) errors.phone_number = phoneErr;
-
-    const passErr = validators.password(form.password);
-    if (passErr) errors.password = passErr;
-
-    const pinErr = validators.pincode(form.postal_code);
-    if (pinErr) errors.postal_code = pinErr;
-
-    if (!form.city.trim()) errors.city = 'Required';
-    if (!form.state.trim()) errors.state = 'Required';
-
-    if (role === 'consumer') {
-      if (!form.address_line1.trim()) errors.address_line1 = 'Required';
-    }
-    if (role === 'tailor') {
-      if (!form.shop_name.trim()) errors.shop_name = 'Required';
-      if (!form.shop_address.trim()) errors.shop_address = 'Required';
-      const aadharErr = validators.aadhar(form.aadhar_number);
-      if (aadharErr) errors.aadhar_number = aadharErr;
-      if (!addressProofFile) errors.address_proof = 'Address proof document is required';
-    }
-
-    setFieldErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError('');
-    if (!validateBeforeSubmit()) return;
-    setLoading(true);
-
-    try {
-      let res;
-      if (role === 'consumer') {
-        res = await authService.registerConsumer({
-          first_name: form.first_name,
-          last_name: form.last_name,
-          email: form.email,
-          phone_number: form.phone_number,
-          password: form.password,
-          address_line1: form.address_line1,
-          city: form.city,
-          state: form.state,
-          postal_code: form.postal_code,
-          latitude: geo.location?.latitude,
-          longitude: geo.location?.longitude,
-          digipin: geo.location?.digipin,
-        });
-      } else {
-        res = await authService.registerTailor({
-          first_name: form.first_name,
-          last_name: form.last_name,
-          email: form.email,
-          phone_number: form.phone_number,
-          password: form.password,
-          shop_name: form.shop_name,
-          shop_address: form.shop_address,
-          city: form.city,
-          state: form.state,
-          postal_code: form.postal_code,
-          years_of_experience: Number(form.years_of_experience) || 0,
-          aadhar_number: form.aadhar_number,
-          address_proof: addressProofFile || undefined,
-          latitude: geo.location?.latitude,
-          longitude: geo.location?.longitude,
-          digipin: geo.location?.digipin,
-        });
-      }
-
-      const { session_id, otp_expiry_seconds } = res.data.data;
-      navigate('/verify-otp', {
-        state: {
-          session_id,
-          email: form.email,
-          otp_expiry_seconds,
-          flow: 'register',
-        },
-      });
-    } catch (err: any) {
-      const msg =
-        err.response?.data?.error?.message ||
-        err.response?.data?.message ||
-        'Registration failed. Please try again.';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const {
+    role, setRole,
+    showPassword, setShowPassword,
+    loading, error, fieldErrors,
+    pincodeLoading, pincodeDistrict,
+    addressProofFile, handleAddressProofChange,
+    form, set, geo,
+    handleSubmit,
+  } = useRegister();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-coral-50 flex">
@@ -232,9 +67,7 @@ export default function Register() {
               onClick={() => setRole('consumer')}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
-                role === 'consumer'
-                  ? 'bg-white text-teal-700 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700',
+                role === 'consumer' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700',
               )}
             >
               <User size={16} />
@@ -245,9 +78,7 @@ export default function Register() {
               onClick={() => setRole('tailor')}
               className={cn(
                 'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all',
-                role === 'tailor'
-                  ? 'bg-white text-teal-700 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700',
+                role === 'tailor' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700',
               )}
             >
               <Scissors size={16} />
@@ -420,7 +251,7 @@ export default function Register() {
                         <span className="text-sm font-medium truncate max-w-[200px]">{addressProofFile.name}</span>
                         <button
                           type="button"
-                          onClick={(e) => { e.preventDefault(); setAddressProofFile(null); }}
+                          onClick={(e) => { e.preventDefault(); handleAddressProofChange(null); }}
                           className="text-gray-400 hover:text-red-500 ml-1"
                         >
                           <X size={16} />
@@ -439,16 +270,7 @@ export default function Register() {
                       accept=".pdf,.jpg,.jpeg,.png,.webp"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) {
-                          setAddressProofFile(file);
-                          if (fieldErrors.address_proof) {
-                            setFieldErrors((prev) => {
-                              const next = { ...prev };
-                              delete next.address_proof;
-                              return next;
-                            });
-                          }
-                        }
+                        if (file) handleAddressProofChange(file);
                       }}
                     />
                   </label>
@@ -477,88 +299,6 @@ export default function Register() {
           </p>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PincodeRow({
-  form,
-  set,
-  fieldErrors,
-  pincodeLoading,
-  pincodeDistrict,
-}: {
-  form: Record<string, string>;
-  set: (field: string, value: string) => void;
-  fieldErrors: FieldErrors;
-  pincodeLoading: boolean;
-  pincodeDistrict: string;
-}) {
-  return (
-    <>
-      <div>
-        <div className="relative">
-          <Input
-            label="PIN Code"
-            value={form.postal_code}
-            onChange={(v) => set('postal_code', v.replace(/\D/g, '').slice(0, 6))}
-            error={fieldErrors.postal_code}
-            placeholder="400001"
-            maxLength={6}
-          />
-          {pincodeLoading && (
-            <Loader2 size={16} className="absolute right-3 top-9 animate-spin text-teal-500" />
-          )}
-        </div>
-        {pincodeDistrict && (
-          <p className="text-xs text-teal-600 mt-1 flex items-center gap-1">
-            <MapPin size={12} /> {pincodeDistrict}
-          </p>
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Input label="City" value={form.city} onChange={(v) => set('city', v)} error={fieldErrors.city} disabled={pincodeLoading} />
-        <Input label="State" value={form.state} onChange={(v) => set('state', v)} error={fieldErrors.state} disabled={pincodeLoading} />
-      </div>
-    </>
-  );
-}
-
-function Input({
-  label,
-  type = 'text',
-  value,
-  onChange,
-  placeholder,
-  error,
-  maxLength,
-  disabled,
-}: {
-  label: string;
-  type?: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  error?: string;
-  maxLength?: number;
-  disabled?: boolean;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        maxLength={maxLength}
-        disabled={disabled}
-        className={cn(
-          'w-full px-3 py-2.5 bg-white border rounded-xl text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:border-transparent transition-shadow disabled:bg-gray-50 disabled:text-gray-500',
-          error ? 'border-red-300 focus:ring-red-400' : 'border-gray-200 focus:ring-teal-500',
-        )}
-      />
-      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
     </div>
   );
 }

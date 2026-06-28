@@ -30,6 +30,7 @@ export class Order {
     type: 'enum',
     enum: [
       'created',
+      'awaiting_material',
       'material_received',
       'tailor_assigned',
       'cutting_started',
