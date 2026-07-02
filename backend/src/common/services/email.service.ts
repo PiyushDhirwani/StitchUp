@@ -7,11 +7,96 @@ import { promises as dns } from 'dns';
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter | null = null;
+  private accessToken: string | null = null;
+  private accessTokenExpiry = 0;
 
   constructor(private configService: ConfigService) {}
 
-  // Adapts nodemailer's bunyan-style logger to Nest's logger so the full
-  // SMTP conversation (connect, TLS, auth, send) shows up in Render logs.
+  // Render free tier blocks all outbound SMTP (25/465/587) but allows HTTPS,
+  // so production sends via the Gmail REST API when OAuth creds are present.
+  private get useGmailApi(): boolean {
+    return Boolean(
+      this.configService.get<string>('GMAIL_CLIENT_ID') &&
+        this.configService.get<string>('GMAIL_CLIENT_SECRET') &&
+        this.configService.get<string>('GMAIL_REFRESH_TOKEN'),
+    );
+  }
+
+  // ─── Gmail API path (HTTPS :443) ────────────────────────────────────────
+
+  private async getAccessToken(): Promise<string> {
+    if (this.accessToken && Date.now() < this.accessTokenExpiry - 60_000) {
+      return this.accessToken;
+    }
+
+    const started = Date.now();
+    const res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: this.configService.get<string>('GMAIL_CLIENT_ID', ''),
+        client_secret: this.configService.get<string>('GMAIL_CLIENT_SECRET', ''),
+        refresh_token: this.configService.get<string>('GMAIL_REFRESH_TOKEN', ''),
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    const body = await res.json();
+    if (!res.ok) {
+      throw new Error(`token refresh failed (${res.status}): ${JSON.stringify(body)}`);
+    }
+
+    this.accessToken = body.access_token as string;
+    this.accessTokenExpiry = Date.now() + body.expires_in * 1000;
+    this.logger.log(`[gmail-api] access token refreshed in ${Date.now() - started}ms`);
+    return this.accessToken;
+  }
+
+  private buildMime(to: string, subject: string, html: string): string {
+    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
+    const fromEmail = this.configService.get<string>('SMTP_USER');
+    const encodedSubject = `=?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`;
+
+    const message = [
+      `From: "${fromName}" <${fromEmail}>`,
+      `To: ${to}`,
+      `Subject: ${encodedSubject}`,
+      'MIME-Version: 1.0',
+      'Content-Type: text/html; charset=UTF-8',
+      '',
+      html,
+    ].join('\r\n');
+
+    return Buffer.from(message).toString('base64url');
+  }
+
+  private async sendViaGmailApi(to: string, subject: string, html: string): Promise<void> {
+    const token = await this.getAccessToken();
+    const res = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ raw: this.buildMime(to, subject, html) }),
+      },
+    );
+
+    if (!res.ok) {
+      const body = await res.text();
+      // Force a token refresh on the next attempt in case it was revoked
+      if (res.status === 401) this.accessToken = null;
+      throw new Error(`gmail send failed (${res.status}): ${body}`);
+    }
+
+    const body = await res.json();
+    this.logger.log(`[gmail-api] message accepted (id=${body.id})`);
+  }
+
+  // ─── SMTP path (local dev) ──────────────────────────────────────────────
+
   private nodemailerLogger() {
     const fmt = (...args: unknown[]) =>
       args
@@ -28,8 +113,6 @@ export class EmailService {
     };
   }
 
-  // Render free tier has no IPv6 outbound and smtp.gmail.com resolves to IPv6
-  // first, so we resolve the IPv4 address ourselves and pin TLS to the hostname.
   private async getTransporter(): Promise<nodemailer.Transporter> {
     if (this.transporter) return this.transporter;
 
@@ -38,18 +121,13 @@ export class EmailService {
     const user = this.configService.get<string>('SMTP_USER');
     const debug = this.configService.get<string>('SMTP_DEBUG', 'true') === 'true';
 
-    const dnsStart = Date.now();
     let connectHost = host;
     try {
       const [ipv4] = await dns.resolve4(host);
       if (ipv4) connectHost = ipv4;
-      this.logger.log(
-        `[smtp] resolved ${host} -> ${connectHost} in ${Date.now() - dnsStart}ms`,
-      );
+      this.logger.log(`[smtp] resolved ${host} -> ${connectHost}`);
     } catch (err) {
-      this.logger.warn(
-        `[smtp] IPv4 resolution failed for ${host}, using hostname: ${err.message}`,
-      );
+      this.logger.warn(`[smtp] IPv4 resolution failed for ${host}: ${err.message}`);
     }
 
     this.logger.log(
@@ -85,85 +163,75 @@ export class EmailService {
     return parts.join(' | ');
   }
 
-  // Tests DNS + TCP + TLS + AUTH without sending a mail.
-  async verifyConnection(): Promise<{ ok: boolean; detail: string; elapsed_ms: number }> {
+  // Tests the active transport (Gmail API token or SMTP connection + auth).
+  async verifyConnection(): Promise<{ ok: boolean; transport: string; detail: string; elapsed_ms: number }> {
     const started = Date.now();
+    const transport = this.useGmailApi ? 'gmail-api' : 'smtp';
     try {
-      const transporter = await this.getTransporter();
-      await transporter.verify();
+      if (this.useGmailApi) {
+        await this.getAccessToken();
+      } else {
+        const transporter = await this.getTransporter();
+        await transporter.verify();
+      }
       const elapsed = Date.now() - started;
-      this.logger.log(`[smtp] verify OK in ${elapsed}ms (connection + auth accepted)`);
-      return { ok: true, detail: 'SMTP connection and auth OK', elapsed_ms: elapsed };
+      this.logger.log(`[${transport}] verify OK in ${elapsed}ms`);
+      return { ok: true, transport, detail: 'connection and auth OK', elapsed_ms: elapsed };
     } catch (error) {
       this.transporter = null;
       const detail = this.describeError(error);
-      this.logger.error(`[smtp] verify FAILED after ${Date.now() - started}ms: ${detail}`);
-      return { ok: false, detail, elapsed_ms: Date.now() - started };
+      this.logger.error(`[${transport}] verify FAILED after ${Date.now() - started}ms: ${detail}`);
+      return { ok: false, transport, detail, elapsed_ms: Date.now() - started };
+    }
+  }
+
+  // ─── Public send methods ────────────────────────────────────────────────
+
+  private async send(to: string, subject: string, html: string): Promise<boolean> {
+    const started = Date.now();
+    const transport = this.useGmailApi ? 'gmail-api' : 'smtp';
+    this.logger.log(`[${transport}] send start: to=${to} subject=${subject}`);
+
+    try {
+      if (this.useGmailApi) {
+        await this.sendViaGmailApi(to, subject, html);
+      } else {
+        const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
+        const fromEmail = this.configService.get<string>('SMTP_USER');
+        const transporter = await this.getTransporter();
+        await transporter.sendMail({ from: `"${fromName}" <${fromEmail}>`, to, subject, html });
+      }
+      this.logger.log(`[${transport}] email sent to ${to} in ${Date.now() - started}ms`);
+      return true;
+    } catch (error) {
+      this.transporter = null;
+      this.logger.error(
+        `[${transport}] send FAILED for ${to} after ${Date.now() - started}ms: ${this.describeError(error)}`,
+      );
+      return false;
     }
   }
 
   async sendOtp(to: string, otp: string): Promise<boolean> {
-    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
-    const fromEmail = this.configService.get<string>('SMTP_USER');
-    const started = Date.now();
-    this.logger.log(`[smtp] sendOtp start: to=${to}`);
-
-    try {
-      const transporter = await this.getTransporter();
-      const info = await transporter.sendMail({
-        from: `"${fromName}" <${fromEmail}>`,
-        to,
-        subject: 'StitchUp - Your Login Verification Code',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-            <h2 style="color: #2563eb; margin-bottom: 8px;">StitchUp</h2>
-            <p style="color: #374151; font-size: 16px;">Your verification code is:</p>
-            <div style="background: #f3f4f6; border-radius: 8px; padding: 20px; text-align: center; margin: 16px 0;">
-              <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #111827;">${otp}</span>
-            </div>
-            <p style="color: #6b7280; font-size: 14px;">This code expires in 5 minutes. Do not share it with anyone.</p>
-            <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
-            <p style="color: #9ca3af; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
+    return this.send(
+      to,
+      'StitchUp - Your Login Verification Code',
+      `
+        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+          <h2 style="color: #2563eb; margin-bottom: 8px;">StitchUp</h2>
+          <p style="color: #374151; font-size: 16px;">Your verification code is:</p>
+          <div style="background: #f3f4f6; border-radius: 8px; padding: 20px; text-align: center; margin: 16px 0;">
+            <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #111827;">${otp}</span>
           </div>
-        `,
-      });
-      this.logger.log(
-        `[smtp] OTP email sent to ${to} in ${Date.now() - started}ms (messageId=${info.messageId}, response=${info.response})`,
-      );
-      return true;
-    } catch (error) {
-      this.transporter = null;
-      this.logger.error(
-        `[smtp] sendOtp FAILED for ${to} after ${Date.now() - started}ms: ${this.describeError(error)}`,
-      );
-      return false;
-    }
+          <p style="color: #6b7280; font-size: 14px;">This code expires in 5 minutes. Do not share it with anyone.</p>
+          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+          <p style="color: #9ca3af; font-size: 12px;">If you didn't request this code, please ignore this email.</p>
+        </div>
+      `,
+    );
   }
 
   async sendGeneric(to: string, subject: string, html: string): Promise<boolean> {
-    const fromName = this.configService.get<string>('SMTP_FROM_NAME', 'StitchUp');
-    const fromEmail = this.configService.get<string>('SMTP_USER');
-    const started = Date.now();
-    this.logger.log(`[smtp] sendGeneric start: to=${to} subject=${subject}`);
-
-    try {
-      const transporter = await this.getTransporter();
-      const info = await transporter.sendMail({
-        from: `"${fromName}" <${fromEmail}>`,
-        to,
-        subject,
-        html,
-      });
-      this.logger.log(
-        `[smtp] email sent to ${to} in ${Date.now() - started}ms (messageId=${info.messageId})`,
-      );
-      return true;
-    } catch (error) {
-      this.transporter = null;
-      this.logger.error(
-        `[smtp] sendGeneric FAILED for ${to} after ${Date.now() - started}ms: ${this.describeError(error)}`,
-      );
-      return false;
-    }
+    return this.send(to, subject, html);
   }
 }
