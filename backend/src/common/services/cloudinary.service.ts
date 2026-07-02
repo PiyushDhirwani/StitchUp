@@ -43,6 +43,57 @@ export class CloudinaryService {
     }
   }
 
+  /**
+   * Uploads as a Cloudinary `private` asset: the plain delivery URL stops
+   * working and access requires a time-limited signed URL (S3 presigned
+   * equivalent). Returns a storage ref (`public_id.format`) — store that in
+   * the DB instead of a URL.
+   */
+  async uploadPrivateImage(
+    file: Express.Multer.File,
+    folder: string = 'stitchup/private',
+  ): Promise<{ ref: string }> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Only JPEG, PNG, WebP, and SVG images are allowed');
+    }
+
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('Image must be under 5MB');
+    }
+
+    try {
+      const result = await this.uploadToCloudinary(file.buffer, folder, 'private');
+      this.logger.log(`Private image uploaded: ${result.public_id}`);
+      return { ref: `${result.public_id}.${result.format}` };
+    } catch (error) {
+      this.logger.error(`Private upload failed: ${error.message}`);
+      throw new BadRequestException('Image upload failed');
+    }
+  }
+
+  /**
+   * Builds a time-limited download URL for a private asset ref.
+   * Legacy values that are already full URLs are returned unchanged.
+   */
+  getExpiringUrl(ref: string, expiresInSeconds = 900): string {
+    if (!ref || ref.startsWith('http')) return ref;
+
+    const lastDot = ref.lastIndexOf('.');
+    const publicId = lastDot > 0 ? ref.slice(0, lastDot) : ref;
+    const format = lastDot > 0 ? ref.slice(lastDot + 1) : 'jpg';
+
+    return cloudinary.utils.private_download_url(publicId, format, {
+      resource_type: 'image',
+      expires_at: Math.floor(Date.now() / 1000) + expiresInSeconds,
+    });
+  }
+
   async deleteImage(publicId: string): Promise<void> {
     try {
       await cloudinary.uploader.destroy(publicId);
@@ -55,11 +106,13 @@ export class CloudinaryService {
   private uploadToCloudinary(
     buffer: Buffer,
     folder: string,
+    type: 'upload' | 'private' = 'upload',
   ): Promise<UploadApiResponse> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           folder,
+          type,
           resource_type: 'image',
           transformation: [{ quality: 'auto', fetch_format: 'auto' }],
         },

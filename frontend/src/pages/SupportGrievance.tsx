@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { supportService } from '@/services/support';
 import { cn } from '@/lib/cn';
+import { IMAGE_UPLOAD, validateImageFile } from '@/lib/validate';
 import api from '@/services/api';
 
 const TICKET_TYPES = [
@@ -331,12 +332,24 @@ export default function SupportGrievance() {
               <input
                 type="file"
                 className="hidden"
-                accept="image/*,.pdf"
-                onChange={(e) => setAttachment(e.target.files?.[0] || null)}
+                accept={IMAGE_UPLOAD.ACCEPT}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] || null;
+                  if (file) {
+                    const err = validateImageFile(file);
+                    if (err) {
+                      setError(err);
+                      e.target.value = '';
+                      return;
+                    }
+                  }
+                  setError('');
+                  setAttachment(file);
+                }}
               />
             </label>
           )}
-          <p className="text-xs text-gray-400 mt-1">Max 5MB — JPEG, PNG, WebP, or PDF</p>
+          <p className="text-xs text-gray-400 mt-1">{IMAGE_UPLOAD.LABEL}</p>
         </div>
 
         {/* Submit */}

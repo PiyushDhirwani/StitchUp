@@ -12,6 +12,7 @@ import { BodyMeasurement } from '../../entities/body-measurement.entity';
 import { TemplateType } from '../../entities/template-type.entity';
 import { TemplateSubType } from '../../entities/template-sub-type.entity';
 import { Material } from '../../entities/material.entity';
+import { UserTailor } from '../../entities/user-tailor.entity';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { Material } from '../../entities/material.entity';
       TemplateType,
       TemplateSubType,
       Material,
+      UserTailor,
     ]),
     PricingModule,
   ],

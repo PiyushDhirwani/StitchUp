@@ -28,7 +28,9 @@ export interface RegisterTailorPayload {
   postal_code: string;
   years_of_experience: number;
   aadhar_number: string;
-  address_proof?: File;
+  profile_picture: File;
+  documents: File[];
+  document_types?: string;
   latitude?: number;
   longitude?: number;
   digipin?: string;
@@ -62,8 +64,12 @@ export const authService = {
     formData.append('postal_code', data.postal_code);
     formData.append('years_of_experience', String(data.years_of_experience));
     formData.append('aadhar_number', data.aadhar_number);
-    if (data.address_proof) {
-      formData.append('address_proof', data.address_proof);
+    formData.append('profile_picture', data.profile_picture);
+    for (const doc of data.documents) {
+      formData.append('documents', doc);
+    }
+    if (data.document_types) {
+      formData.append('document_types', data.document_types);
     }
     if (data.latitude != null) formData.append('latitude', String(data.latitude));
     if (data.longitude != null) formData.append('longitude', String(data.longitude));

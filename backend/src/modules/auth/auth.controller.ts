@@ -1,5 +1,5 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFile } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { Controller, Post, Body, HttpCode, HttpStatus, UseInterceptors, UploadedFiles } from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiConsumes } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { RegisterConsumerDto } from './dto/register-consumer.dto';
@@ -20,16 +20,31 @@ export class AuthController {
   }
 
   @Post('tailor/register')
-  @UseInterceptors(FileInterceptor('address_proof', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'profile_picture', maxCount: 1 },
+        { name: 'documents', maxCount: 5 },
+      ],
+      { limits: { fileSize: 5 * 1024 * 1024 } },
+    ),
+  )
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'Register a new tailor with Aadhaar and address proof upload' })
-  @ApiResponse({ status: 201, description: 'Tailor registered successfully' })
+  @ApiOperation({
+    summary:
+      'Register a new tailor — profile picture and at least one KYC document are mandatory. Account stays in pending KYC until admin approval (24-48h).',
+  })
+  @ApiResponse({ status: 201, description: 'Tailor registered, KYC pending' })
   @ApiResponse({ status: 409, description: 'Email or phone already exists' })
   async registerTailor(
     @Body() dto: RegisterTailorDto,
-    @UploadedFile() addressProof?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      profile_picture?: Express.Multer.File[];
+      documents?: Express.Multer.File[];
+    },
   ) {
-    return this.authService.registerTailor(dto, addressProof);
+    return this.authService.registerTailor(dto, files);
   }
 
   @Post('login/request-otp')

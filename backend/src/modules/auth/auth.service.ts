@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ServiceUnavailableException,
   Inject,
   Logger,
 } from '@nestjs/common';
@@ -18,6 +19,7 @@ import { User } from '../../entities/user.entity';
 import { UserRole } from '../../entities/user-role.entity';
 import { UserConsumer } from '../../entities/user-consumer.entity';
 import { UserTailor } from '../../entities/user-tailor.entity';
+import { TailorVerification } from '../../entities/tailor-verification.entity';
 import { REDIS_CLIENT } from '../../config/redis.config';
 import { ErrorCodes } from '../../common/constants/error-codes';
 import { EmailService } from '../../common/services/email.service';
@@ -35,6 +37,7 @@ export class AuthService {
     @InjectRepository(UserRole) private roleRepo: Repository<UserRole>,
     @InjectRepository(UserConsumer) private consumerRepo: Repository<UserConsumer>,
     @InjectRepository(UserTailor) private tailorRepo: Repository<UserTailor>,
+    @InjectRepository(TailorVerification) private verificationRepo: Repository<TailorVerification>,
     private jwtService: JwtService,
     private configService: ConfigService,
     @Inject(REDIS_CLIENT) private redis: Redis,
@@ -106,22 +109,51 @@ export class AuthService {
     };
   }
 
-  async registerTailor(dto: RegisterTailorDto, addressProofFile?: Express.Multer.File) {
+  async registerTailor(
+    dto: RegisterTailorDto,
+    files?: {
+      profile_picture?: Express.Multer.File[];
+      documents?: Express.Multer.File[];
+    },
+  ) {
     await this.checkDuplicates(dto.email, dto.phone_number);
 
     const role = await this.roleRepo.findOne({ where: { role_name: 'tailor' } });
     if (!role) throw new NotFoundException('Tailor role not found');
 
+    const profilePicture = files?.profile_picture?.[0];
+    const documents = files?.documents ?? [];
+
+    if (!profilePicture) {
+      throw new BadRequestException('Profile picture is mandatory for tailor registration');
+    }
+    if (documents.length === 0) {
+      throw new BadRequestException('At least one KYC document is required for tailor registration');
+    }
+
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    // Upload address proof to Cloudinary if provided
-    let addressProofUrl: string | null = null;
-    if (addressProofFile) {
-      const uploadResult = await this.cloudinaryService.uploadImage(
-        addressProofFile,
-        'stitchup/kyc/address-proofs',
+    // Profile pictures are public; KYC docs are stored as private-asset refs
+    // and only accessible via time-limited signed URLs
+    const profileUpload = await this.cloudinaryService.uploadImage(
+      profilePicture,
+      'stitchup/profile-pictures',
+    );
+
+    const allowedDocTypes = ['pan', 'aadhar', 'gst', 'shop_license', 'other'];
+    const docTypes = (dto.document_types || '')
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+
+    const kycDocuments: { type: string; ref: string }[] = [];
+    for (let i = 0; i < documents.length; i++) {
+      const uploaded = await this.cloudinaryService.uploadPrivateImage(
+        documents[i],
+        'stitchup/kyc/documents',
       );
-      addressProofUrl = uploadResult.url;
+      const type = allowedDocTypes.includes(docTypes[i]) ? docTypes[i] : 'other';
+      kycDocuments.push({ type, ref: uploaded.ref });
     }
 
     // Cache registration data in Redis — no DB write yet
@@ -143,6 +175,7 @@ export class AuthService {
           first_name: dto.first_name,
           last_name: dto.last_name,
           role_id: role.id,
+          profile_picture_url: profileUpload.url,
         },
         tailor: {
           shop_name: dto.shop_name,
@@ -160,8 +193,9 @@ export class AuthService {
           bio: dto.bio,
           shop_registration_number: dto.shop_registration_number,
           aadhar_number: dto.aadhar_number,
-          address_proof_url: addressProofUrl,
+          verification_status: 'pending',
         },
+        kyc_documents: kycDocuments,
       },
     });
     await this.redis.setex(`otp:${sessionId}`, otpExpiry, sessionData);
@@ -205,6 +239,8 @@ export class AuthService {
       });
     }
 
+    await this.enforceUserCapacity(user.id);
+
     user.last_login = new Date();
     await this.userRepo.save(user);
 
@@ -222,6 +258,7 @@ export class AuthService {
         role: roleName,
         consumer_id: user.consumer_profile?.id,
         tailor_id: user.tailor_profile?.id,
+        kyc_status: user.tailor_profile?.verification_status,
         last_login: user.last_login,
         auth_token: authToken,
         token_expiry_seconds: 86400,
@@ -303,6 +340,8 @@ export class AuthService {
     });
     if (!user) throw new NotFoundException('User not found');
 
+    await this.enforceUserCapacity(user.id);
+
     user.last_login = new Date();
     user.is_verified = true;
     await this.userRepo.save(user);
@@ -321,6 +360,7 @@ export class AuthService {
         role: roleName,
         consumer_id: user.consumer_profile?.id,
         tailor_id: user.tailor_profile?.id,
+        kyc_status: user.tailor_profile?.verification_status,
         last_login: user.last_login,
         auth_token: authToken,
         token_expiry_seconds: 86400,
@@ -329,9 +369,41 @@ export class AuthService {
     };
   }
 
+  /**
+   * Caps concurrent active users (default 500). Active = logged in within
+   * the last 24h, tracked in a Redis sorted set scored by expiry time.
+   * Users already active can always log in again.
+   */
+  private async enforceUserCapacity(userId: number): Promise<void> {
+    const max = this.configService.get<number>('MAX_ACTIVE_USERS', 500);
+    const sessionTtlMs = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const key = 'active_users';
+
+    try {
+      await this.redis.zremrangebyscore(key, '-inf', now);
+      const alreadyActive = await this.redis.zscore(key, String(userId));
+      if (!alreadyActive) {
+        const activeCount = await this.redis.zcard(key);
+        if (activeCount >= max) {
+          throw new ServiceUnavailableException({
+            error_code: 'CAPACITY_FULL',
+            message: 'We are at full capacity right now. Please try again in a while.',
+          });
+        }
+      }
+      await this.redis.zadd(key, now + sessionTtlMs, String(userId));
+    } catch (err) {
+      if (err instanceof ServiceUnavailableException) throw err;
+      // Redis hiccups shouldn't lock everyone out
+      this.logger.warn(`User capacity check skipped: ${err.message}`);
+    }
+  }
+
   private async completeConsumerRegistration(reg: any) {
     const user = Object.assign(new User(), reg.user, { is_verified: true });
     const savedUser = await this.userRepo.save(user);
+    await this.enforceUserCapacity(savedUser.id);
 
     const consumer = Object.assign(new UserConsumer(), reg.consumer, { user_id: savedUser.id });
     const savedConsumer = await this.consumerRepo.save(consumer);
@@ -358,15 +430,30 @@ export class AuthService {
   private async completeTailorRegistration(reg: any) {
     const user = Object.assign(new User(), reg.user, { is_verified: true });
     const savedUser = await this.userRepo.save(user);
+    await this.enforceUserCapacity(savedUser.id);
 
     const tailor = Object.assign(new UserTailor(), reg.tailor, { user_id: savedUser.id });
     const savedTailor = await this.tailorRepo.save(tailor);
+
+    // Persist KYC documents for admin review
+    const docs: { type: string; ref: string }[] = reg.kyc_documents || [];
+    for (const doc of docs) {
+      await this.verificationRepo.save(
+        this.verificationRepo.create({
+          tailor_id: savedTailor.id,
+          verification_type: doc.type,
+          document_url: doc.ref,
+          status: 'pending',
+        }),
+      );
+    }
 
     const authToken = this.generateToken(savedUser, 'tailor');
     const refreshToken = this.generateRefreshToken(savedUser, 'tailor');
 
     return {
-      message: 'Email verified. Tailor registered successfully.',
+      message:
+        'Email verified. Your KYC is under review — verification usually takes 24-48 hours. You can accept orders once approved.',
       data: {
         user_id: savedUser.id,
         tailor_id: savedTailor.id,
@@ -374,6 +461,9 @@ export class AuthService {
         phone_number: savedUser.phone_number,
         role: 'tailor',
         shop_name: savedTailor.shop_name,
+        kyc_status: 'pending',
+        kyc_review_eta_hours: '24-48',
+        documents_submitted: docs.length,
         created_at: savedUser.created_at,
         auth_token: authToken,
         token_expiry_seconds: 86400,

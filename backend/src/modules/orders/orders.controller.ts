@@ -21,6 +21,24 @@ export class OrdersController {
     return this.ordersService.createOrder(dto, currentUser);
   }
 
+  @Get('tailor/available')
+  @ApiOperation({ summary: 'List unassigned orders a tailor can accept (KYC-approved tailors only)' })
+  @ApiResponse({ status: 200, description: 'Available orders' })
+  async getAvailableOrders(@CurrentUser() currentUser: any) {
+    return this.ordersService.getAvailableOrders(currentUser);
+  }
+
+  @Post(':orderId/accept')
+  @ApiOperation({ summary: 'Tailor accepts an order (max 3 active orders)' })
+  @ApiResponse({ status: 201, description: 'Order accepted' })
+  @ApiResponse({ status: 400, description: 'Max active orders reached or order not acceptable' })
+  async acceptOrder(
+    @Param('orderId', ParseIntPipe) orderId: number,
+    @CurrentUser() currentUser: any,
+  ) {
+    return this.ordersService.acceptOrder(orderId, currentUser);
+  }
+
   @Get('history/:userId')
   @ApiOperation({ summary: 'Get order history for a user' })
   @ApiQuery({ name: 'status', required: false })

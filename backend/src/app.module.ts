@@ -15,6 +15,7 @@ import { SupportModule } from './modules/support/support.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
 import { RatingsModule } from './modules/ratings/ratings.module';
+import { AdminModule } from './modules/admin/admin.module';
 // import { ShippingModule } from './modules/shipping/shipping.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { RatingsModule } from './modules/ratings/ratings.module';
     PaymentsModule,
     UploadsModule,
     RatingsModule,
+    AdminModule,
     // ShippingModule,
   ],
   providers: [

@@ -22,6 +22,13 @@ export class RatingsController {
     return this.ratingsService.createRating(dto, currentUser);
   }
 
+  @Get('tailor/mine')
+  @ApiOperation({ summary: 'Get customer feedback received by the logged-in tailor' })
+  @ApiResponse({ status: 200, description: 'Reviews and average rating' })
+  async getTailorFeedback(@CurrentUser() currentUser: any) {
+    return this.ratingsService.getTailorFeedback(currentUser);
+  }
+
   @Get('order/:orderId')
   @ApiOperation({ summary: 'Get rating for an order by current user' })
   @ApiResponse({ status: 200, description: 'Rating data or null' })

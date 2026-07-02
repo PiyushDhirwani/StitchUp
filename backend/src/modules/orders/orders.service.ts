@@ -5,8 +5,9 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, IsNull } from 'typeorm';
 import { Order } from '../../entities/order.entity';
+import { UserTailor } from '../../entities/user-tailor.entity';
 import { OrderItem } from '../../entities/order-item.entity';
 import { OrderDetails } from '../../entities/order-details.entity';
 import { OrderStatusHistory } from '../../entities/order-status-history.entity';
@@ -21,16 +22,30 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { ErrorCodes } from '../../common/constants/error-codes';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
-  created: ['material_received', 'cancelled'],
+  created: ['awaiting_material', 'material_received', 'tailor_assigned', 'cancelled'],
+  awaiting_material: ['material_received', 'tailor_assigned', 'cancelled'],
   material_received: ['tailor_assigned', 'cancelled'],
-  tailor_assigned: ['cutting_started', 'cancelled'],
+  tailor_assigned: ['cutting_started', 'stitching_in_progress', 'cancelled'],
   cutting_started: ['stitching_in_progress', 'cancelled'],
-  stitching_in_progress: ['final_touch', 'cancelled'],
+  stitching_in_progress: ['final_touch', 'ready_for_collection', 'cancelled'],
   final_touch: ['ready_for_collection'],
   ready_for_collection: ['completed'],
   completed: [],
   cancelled: [],
 };
+
+// Statuses that count towards a tailor's concurrent workload
+const ACTIVE_TAILOR_STATUSES = [
+  'tailor_assigned',
+  'cutting_started',
+  'stitching_in_progress',
+  'final_touch',
+];
+
+// Unassigned orders in these states are visible for tailors to accept
+const ACCEPTABLE_STATUSES = ['created', 'awaiting_material', 'material_received'];
+
+const MAX_ACTIVE_ORDERS_PER_TAILOR = 3;
 
 @Injectable()
 export class OrdersService {
@@ -44,8 +59,112 @@ export class OrdersService {
     @InjectRepository(TemplateType) private templateTypeRepo: Repository<TemplateType>,
     @InjectRepository(TemplateSubType) private subTypeRepo: Repository<TemplateSubType>,
     @InjectRepository(Material) private materialRepo: Repository<Material>,
+    @InjectRepository(UserTailor) private tailorRepo: Repository<UserTailor>,
     private pricingService: PricingService,
   ) {}
+
+  /** Unassigned orders a tailor can pick up */
+  async getAvailableOrders(currentUser: any) {
+    const tailor = await this.requireApprovedTailor(currentUser);
+
+    const orders = await this.orderRepo.find({
+      where: { tailor_id: IsNull(), order_status: In(ACCEPTABLE_STATUSES) },
+      relations: ['items', 'items.template_type', 'items.template_sub_type', 'details'],
+      order: { created_at: 'ASC' },
+    });
+
+    const activeCount = await this.countActiveOrders(tailor.id);
+
+    return {
+      data: {
+        active_orders: activeCount,
+        max_active_orders: MAX_ACTIVE_ORDERS_PER_TAILOR,
+        can_accept: activeCount < MAX_ACTIVE_ORDERS_PER_TAILOR,
+        orders: orders.map((o) => ({
+          order_id: o.id,
+          order_status: o.order_status,
+          urgency_level: o.urgency_level,
+          delivery_date: o.delivery_date,
+          final_amount: Number(o.final_amount),
+          city: o.details?.delivery_city,
+          items_summary: (o.items || [])
+            .map((i) => `${i.template_type?.type_name || ''} (${i.template_sub_type?.sub_type_name || ''})`)
+            .join(', '),
+          created_at: o.created_at,
+        })),
+      },
+    };
+  }
+
+  /** Tailor accepts an unassigned order — capped at 3 concurrent active orders */
+  async acceptOrder(orderId: number, currentUser: any) {
+    const tailor = await this.requireApprovedTailor(currentUser);
+
+    const activeCount = await this.countActiveOrders(tailor.id);
+    if (activeCount >= MAX_ACTIVE_ORDERS_PER_TAILOR) {
+      throw new BadRequestException({
+        error_code: 'MAX_ACTIVE_ORDERS',
+        message: `You already have ${activeCount} active orders. Complete one before accepting more.`,
+      });
+    }
+
+    const order = await this.orderRepo.findOne({ where: { id: orderId } });
+    if (!order) throw new NotFoundException({ error_code: ErrorCodes.ORDER_NOT_FOUND, message: 'Order not found' });
+    if (order.tailor_id) {
+      throw new BadRequestException({ error_code: 'ALREADY_ASSIGNED', message: 'Order is already assigned to a tailor' });
+    }
+    if (!ACCEPTABLE_STATUSES.includes(order.order_status)) {
+      throw new BadRequestException({
+        error_code: ErrorCodes.INVALID_STATUS,
+        message: `Order in status '${order.order_status}' cannot be accepted`,
+      });
+    }
+
+    const previousStatus = order.order_status;
+    order.tailor_id = tailor.id;
+    order.order_status = 'tailor_assigned';
+    await this.orderRepo.save(order);
+
+    await this.statusHistoryRepo.save(
+      this.statusHistoryRepo.create({
+        order_id: order.id,
+        previous_status: previousStatus,
+        current_status: 'tailor_assigned',
+        changed_by: currentUser.id,
+        status_notes: `Order accepted by tailor ${tailor.shop_name}`,
+      }),
+    );
+
+    return {
+      message: 'Order accepted',
+      data: {
+        order_id: order.id,
+        order_status: order.order_status,
+        active_orders: activeCount + 1,
+        max_active_orders: MAX_ACTIVE_ORDERS_PER_TAILOR,
+      },
+    };
+  }
+
+  private async requireApprovedTailor(currentUser: any): Promise<UserTailor> {
+    const tailor = await this.tailorRepo.findOne({ where: { user_id: currentUser.id } });
+    if (!tailor) {
+      throw new ForbiddenException({ error_code: ErrorCodes.FORBIDDEN, message: 'Tailor profile not found' });
+    }
+    if (tailor.verification_status !== 'approved') {
+      throw new ForbiddenException({
+        error_code: 'KYC_NOT_APPROVED',
+        message: 'Your KYC is not approved yet. You can accept orders once verification is complete.',
+      });
+    }
+    return tailor;
+  }
+
+  private countActiveOrders(tailorId: number): Promise<number> {
+    return this.orderRepo.count({
+      where: { tailor_id: tailorId, order_status: In(ACTIVE_TAILOR_STATUSES) },
+    });
+  }
 
   async createOrder(dto: CreateOrderDto, currentUser: any) {
     // Validate consumer
@@ -352,6 +471,17 @@ export class OrdersService {
   async updateOrderStatus(orderId: number, dto: UpdateOrderStatusDto, currentUser: any) {
     const order = await this.orderRepo.findOne({ where: { id: orderId } });
     if (!order) throw new NotFoundException({ error_code: ErrorCodes.ORDER_NOT_FOUND, message: 'Order not found' });
+
+    // Tailors may only update orders assigned to them
+    if (currentUser.role === 'tailor') {
+      const tailor = await this.tailorRepo.findOne({ where: { user_id: currentUser.id } });
+      if (!tailor || order.tailor_id !== tailor.id) {
+        throw new ForbiddenException({
+          error_code: ErrorCodes.FORBIDDEN,
+          message: 'You can only update orders assigned to you',
+        });
+      }
+    }
 
     const allowed = VALID_TRANSITIONS[order.order_status] || [];
     if (!allowed.includes(dto.status)) {

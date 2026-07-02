@@ -1,12 +1,14 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../../entities/user.entity';
 import { UserConsumer } from '../../entities/user-consumer.entity';
 import { UserTailor } from '../../entities/user-tailor.entity';
+import { TailorVerification } from '../../entities/tailor-verification.entity';
 import { UpdateConsumerProfileDto } from './dto/update-consumer-profile.dto';
 import { UpdateTailorProfileDto } from './dto/update-tailor-profile.dto';
 import { ErrorCodes } from '../../common/constants/error-codes';
+import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Injectable()
 export class UsersService {
@@ -14,7 +16,94 @@ export class UsersService {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(UserConsumer) private consumerRepo: Repository<UserConsumer>,
     @InjectRepository(UserTailor) private tailorRepo: Repository<UserTailor>,
+    @InjectRepository(TailorVerification) private verificationRepo: Repository<TailorVerification>,
+    private cloudinaryService: CloudinaryService,
   ) {}
+
+  async updateProfilePicture(userId: number, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file provided');
+
+    const user = await this.userRepo.findOne({ where: { id: userId, is_active: true } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const uploaded = await this.cloudinaryService.uploadImage(file, 'stitchup/profile-pictures');
+    user.profile_picture_url = uploaded.url;
+    await this.userRepo.save(user);
+
+    return {
+      message: 'Profile picture updated',
+      data: { profile_picture_url: uploaded.url },
+    };
+  }
+
+  async submitTailorDocuments(userId: number, documents: Express.Multer.File[], documentTypes?: string) {
+    if (!documents || documents.length === 0) {
+      throw new BadRequestException('At least one document is required');
+    }
+
+    const tailor = await this.tailorRepo.findOne({ where: { user_id: userId } });
+    if (!tailor) throw new NotFoundException('Tailor profile not found');
+
+    const allowedTypes = ['pan', 'aadhar', 'gst', 'shop_license', 'other'];
+    const types = (documentTypes || '')
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+
+    const saved: { id: number; type: string }[] = [];
+    for (let i = 0; i < documents.length; i++) {
+      const uploaded = await this.cloudinaryService.uploadPrivateImage(
+        documents[i],
+        'stitchup/kyc/documents',
+      );
+      const type = allowedTypes.includes(types[i]) ? types[i] : 'other';
+      const row = await this.verificationRepo.save(
+        this.verificationRepo.create({
+          tailor_id: tailor.id,
+          verification_type: type,
+          document_url: uploaded.ref,
+          status: 'pending',
+        }),
+      );
+      saved.push({ id: row.id, type });
+    }
+
+    // New documents put a rejected KYC back into review
+    if (tailor.verification_status === 'rejected') {
+      tailor.verification_status = 'pending';
+      await this.tailorRepo.save(tailor);
+    }
+
+    return {
+      message: 'Documents submitted for review. Verification usually takes 24-48 hours.',
+      data: {
+        documents: saved,
+        kyc_status: tailor.verification_status,
+      },
+    };
+  }
+
+  async listTailorDocuments(userId: number) {
+    const tailor = await this.tailorRepo.findOne({
+      where: { user_id: userId },
+      relations: ['verifications'],
+    });
+    if (!tailor) throw new NotFoundException('Tailor profile not found');
+
+    return {
+      data: {
+        kyc_status: tailor.verification_status,
+        documents: (tailor.verifications || []).map((v) => ({
+          id: v.id,
+          type: v.verification_type,
+          status: v.status,
+          submitted_at: v.submitted_at,
+          rejection_reason: v.rejection_reason,
+          url: this.cloudinaryService.getExpiringUrl(v.document_url, 900),
+        })),
+      },
+    };
+  }
 
   async getUserDetails(userId: number, currentUser: any) {
     if (currentUser.id !== userId && currentUser.role !== 'admin') {

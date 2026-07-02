@@ -4,7 +4,7 @@ import type { FormEvent } from 'react';
 import { authService } from '@/services/auth';
 import { lookupPincode } from '@/services/pincode';
 import { useGeolocation } from '@/hooks/useGeolocation';
-import { validators, type FieldErrors } from '@/lib/validate';
+import { validators, validateImageFile, type FieldErrors } from '@/lib/validate';
 import type { UserRole, RegisterFormState } from '@/types/auth.types';
 
 const initialForm: RegisterFormState = {
@@ -33,7 +33,8 @@ export function useRegister() {
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [pincodeLoading, setPincodeLoading] = useState(false);
   const [pincodeDistrict, setPincodeDistrict] = useState('');
-  const [addressProofFile, setAddressProofFile] = useState<File | null>(null);
+  const [profilePictureFile, setProfilePictureFile] = useState<File | null>(null);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [form, setForm] = useState<RegisterFormState>(initialForm);
 
   const set = (field: string, value: string) => {
@@ -109,22 +110,52 @@ export function useRegister() {
       if (!form.shop_address.trim()) errors.shop_address = 'Required';
       const aadharErr = validators.aadhar(form.aadhar_number);
       if (aadharErr) errors.aadhar_number = aadharErr;
-      if (!addressProofFile) errors.address_proof = 'Address proof document is required';
+      if (!profilePictureFile) errors.profile_picture = 'Profile picture is mandatory for tailors';
+      if (documentFiles.length === 0) errors.documents = 'At least one KYC document is required';
     }
 
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleAddressProofChange = (file: File | null) => {
-    setAddressProofFile(file);
-    if (file && fieldErrors.address_proof) {
-      setFieldErrors((prev) => {
-        const next = { ...prev };
-        delete next.address_proof;
-        return next;
-      });
+  const clearFieldError = (field: string) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleProfilePictureChange = (file: File | null) => {
+    if (file) {
+      const err = validateImageFile(file);
+      if (err) {
+        setProfilePictureFile(null);
+        setFieldErrors((prev) => ({ ...prev, profile_picture: err }));
+        return;
+      }
     }
+    setProfilePictureFile(file);
+    if (file) clearFieldError('profile_picture');
+  };
+
+  const handleAddDocuments = (files: FileList | null) => {
+    if (!files) return;
+    const valid: File[] = [];
+    for (const file of Array.from(files)) {
+      const err = validateImageFile(file);
+      if (err) {
+        setFieldErrors((prev) => ({ ...prev, documents: err }));
+        return;
+      }
+      valid.push(file);
+    }
+    setDocumentFiles((prev) => [...prev, ...valid].slice(0, 5));
+    clearFieldError('documents');
+  };
+
+  const handleRemoveDocument = (index: number) => {
+    setDocumentFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -164,7 +195,8 @@ export function useRegister() {
           postal_code: form.postal_code,
           years_of_experience: Number(form.years_of_experience) || 0,
           aadhar_number: form.aadhar_number,
-          address_proof: addressProofFile || undefined,
+          profile_picture: profilePictureFile!,
+          documents: documentFiles,
           latitude: geo.location?.latitude,
           longitude: geo.location?.longitude,
           digipin: geo.location?.digipin,
@@ -201,8 +233,11 @@ export function useRegister() {
     fieldErrors,
     pincodeLoading,
     pincodeDistrict,
-    addressProofFile,
-    handleAddressProofChange,
+    profilePictureFile,
+    handleProfilePictureChange,
+    documentFiles,
+    handleAddDocuments,
+    handleRemoveDocument,
     form,
     set,
     geo,

@@ -19,7 +19,8 @@ export default function Register() {
     showPassword, setShowPassword,
     loading, error, fieldErrors,
     pincodeLoading, pincodeDistrict,
-    addressProofFile, handleAddressProofChange,
+    profilePictureFile, handleProfilePictureChange,
+    documentFiles, handleAddDocuments, handleRemoveDocument,
     form, set, geo,
     handleSubmit,
   } = useRegister();
@@ -233,25 +234,29 @@ export default function Register() {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Address Proof (Aadhaar / Utility Bill / Voter ID)
+                    Profile Picture <span className="text-red-400">*</span>
                   </label>
                   <label
                     className={cn(
-                      'flex flex-col items-center justify-center w-full h-28 border-2 border-dashed rounded-xl cursor-pointer transition-colors',
-                      fieldErrors.address_proof
+                      'flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-xl cursor-pointer transition-colors',
+                      fieldErrors.profile_picture
                         ? 'border-red-300 bg-red-50'
-                        : addressProofFile
+                        : profilePictureFile
                           ? 'border-teal-300 bg-teal-50'
                           : 'border-gray-200 bg-gray-50 hover:bg-gray-100',
                     )}
                   >
-                    {addressProofFile ? (
+                    {profilePictureFile ? (
                       <div className="flex items-center gap-2 text-teal-700">
-                        <FileText size={20} />
-                        <span className="text-sm font-medium truncate max-w-[200px]">{addressProofFile.name}</span>
+                        <img
+                          src={URL.createObjectURL(profilePictureFile)}
+                          alt="Preview"
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                        <span className="text-sm font-medium truncate max-w-[180px]">{profilePictureFile.name}</span>
                         <button
                           type="button"
-                          onClick={(e) => { e.preventDefault(); handleAddressProofChange(null); }}
+                          onClick={(e) => { e.preventDefault(); handleProfilePictureChange(null); }}
                           className="text-gray-400 hover:text-red-500 ml-1"
                         >
                           <X size={16} />
@@ -259,24 +264,82 @@ export default function Register() {
                       </div>
                     ) : (
                       <div className="flex flex-col items-center text-gray-400">
-                        <Upload size={24} className="mb-1" />
-                        <span className="text-sm">Click to upload document</span>
-                        <span className="text-xs text-gray-300 mt-0.5">PDF, JPG, PNG — Max 5MB</span>
+                        <User size={22} className="mb-1" />
+                        <span className="text-sm">Upload your photo</span>
+                        <span className="text-xs text-gray-300 mt-0.5">Mandatory for tailors — JPEG, PNG, WebP, max 5MB</span>
                       </div>
                     )}
                     <input
                       type="file"
                       className="hidden"
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
+                      accept="image/jpeg,image/png,image/webp,image/svg+xml"
                       onChange={(e) => {
                         const file = e.target.files?.[0];
-                        if (file) handleAddressProofChange(file);
+                        if (file) handleProfilePictureChange(file);
+                        e.target.value = '';
                       }}
                     />
                   </label>
-                  {fieldErrors.address_proof && (
-                    <p className="text-xs text-red-500 mt-1">{fieldErrors.address_proof}</p>
+                  {fieldErrors.profile_picture && (
+                    <p className="text-xs text-red-500 mt-1">{fieldErrors.profile_picture}</p>
                   )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    KYC Documents (Aadhaar / PAN / Shop License / Utility Bill) <span className="text-red-400">*</span>
+                  </label>
+                  {documentFiles.length > 0 && (
+                    <div className="space-y-2 mb-2">
+                      {documentFiles.map((doc, i) => (
+                        <div key={`${doc.name}-${i}`} className="flex items-center gap-2 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
+                          <FileText size={16} className="text-teal-600 shrink-0" />
+                          <span className="text-sm text-teal-800 flex-1 truncate">{doc.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDocument(i)}
+                            className="text-gray-400 hover:text-red-500"
+                          >
+                            <X size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {documentFiles.length < 5 && (
+                    <label
+                      className={cn(
+                        'flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-xl cursor-pointer transition-colors',
+                        fieldErrors.documents
+                          ? 'border-red-300 bg-red-50'
+                          : 'border-gray-200 bg-gray-50 hover:bg-gray-100',
+                      )}
+                    >
+                      <div className="flex flex-col items-center text-gray-400">
+                        <Upload size={20} className="mb-1" />
+                        <span className="text-sm">
+                          {documentFiles.length === 0 ? 'Upload at least 1 document' : 'Add another document'}
+                        </span>
+                        <span className="text-xs text-gray-300 mt-0.5">Up to 5 — JPEG, PNG, WebP, max 5MB each</span>
+                      </div>
+                      <input
+                        type="file"
+                        className="hidden"
+                        multiple
+                        accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                        onChange={(e) => {
+                          handleAddDocuments(e.target.files);
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  )}
+                  {fieldErrors.documents && (
+                    <p className="text-xs text-red-500 mt-1">{fieldErrors.documents}</p>
+                  )}
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    Your KYC will be reviewed within <strong>24-48 hours</strong>. You can accept orders once approved.
+                  </p>
                 </div>
               </>
             )}

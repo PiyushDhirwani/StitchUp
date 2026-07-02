@@ -1,9 +1,24 @@
-import { Controller, Get, Put, Param, Body, UseGuards, ParseIntPipe } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Put,
+  Post,
+  Param,
+  Body,
+  UseGuards,
+  ParseIntPipe,
+  UseInterceptors,
+  UploadedFile,
+  UploadedFiles,
+} from '@nestjs/common';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
 import { UpdateConsumerProfileDto } from './dto/update-consumer-profile.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -33,5 +48,43 @@ export class UsersController {
     @CurrentUser() currentUser: any,
   ) {
     return this.usersService.updateUserProfile(userId, dto, currentUser);
+  }
+
+  @Post('me/profile-picture')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload/replace own profile picture' })
+  @ApiResponse({ status: 201, description: 'Profile picture updated' })
+  async uploadProfilePicture(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() currentUser: any,
+  ) {
+    return this.usersService.updateProfilePicture(currentUser.id, file);
+  }
+
+  @Post('tailor/documents')
+  @UseGuards(RolesGuard)
+  @Roles('tailor')
+  @UseInterceptors(FilesInterceptor('documents', 5, { limits: { fileSize: 5 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary:
+      'Submit additional KYC documents (tailor). Re-submitting after rejection moves KYC back to pending.',
+  })
+  @ApiResponse({ status: 201, description: 'Documents submitted for review' })
+  async uploadTailorDocuments(
+    @UploadedFiles() documents: Express.Multer.File[],
+    @Body('document_types') documentTypes: string,
+    @CurrentUser() currentUser: any,
+  ) {
+    return this.usersService.submitTailorDocuments(currentUser.id, documents, documentTypes);
+  }
+
+  @Get('tailor/documents')
+  @UseGuards(RolesGuard)
+  @Roles('tailor')
+  @ApiOperation({ summary: 'List own KYC documents and their review status' })
+  async listTailorDocuments(@CurrentUser() currentUser: any) {
+    return this.usersService.listTailorDocuments(currentUser.id);
   }
 }

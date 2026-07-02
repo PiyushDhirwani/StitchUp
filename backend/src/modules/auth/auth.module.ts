@@ -10,13 +10,14 @@ import { User } from '../../entities/user.entity';
 import { UserRole } from '../../entities/user-role.entity';
 import { UserConsumer } from '../../entities/user-consumer.entity';
 import { UserTailor } from '../../entities/user-tailor.entity';
+import { TailorVerification } from '../../entities/tailor-verification.entity';
 import { REDIS_CLIENT, createRedisClient } from '../../config/redis.config';
 import { EmailService } from '../../common/services/email.service';
 import { CloudinaryService } from '../../common/services/cloudinary.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, UserRole, UserConsumer, UserTailor]),
+    TypeOrmModule.forFeature([User, UserRole, UserConsumer, UserTailor, TailorVerification]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

@@ -116,4 +116,13 @@ export class RegisterTailorDto {
   @IsNotEmpty({ message: 'Aadhaar number is required for tailor registration' })
   @Matches(/^[2-9][0-9]{11}$/, { message: 'Aadhaar number must be a valid 12-digit number' })
   aadhar_number: string;
+
+  @ApiPropertyOptional({
+    example: 'aadhar,shop_license',
+    description:
+      'Comma-separated types for the uploaded documents, in the same order as the files. Allowed: pan, aadhar, gst, shop_license, other. Defaults to "other".',
+  })
+  @IsOptional()
+  @IsString()
+  document_types?: string;
 }

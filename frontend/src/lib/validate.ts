@@ -24,6 +24,24 @@ export const validators = {
     v.trim() ? '' : 'This field is required',
 };
 
+/** Must match backend CloudinaryService rules (JPEG/PNG/WebP/SVG, 5MB) */
+export const IMAGE_UPLOAD = {
+  ACCEPT: 'image/jpeg,image/png,image/webp,image/svg+xml',
+  MIME_TYPES: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+  MAX_SIZE_BYTES: 5 * 1024 * 1024,
+  LABEL: 'JPEG, PNG, WebP, or SVG — max 5MB',
+} as const;
+
+export function validateImageFile(file: File): string {
+  if (!IMAGE_UPLOAD.MIME_TYPES.includes(file.type as any)) {
+    return 'Only JPEG, PNG, WebP, and SVG images are allowed';
+  }
+  if (file.size > IMAGE_UPLOAD.MAX_SIZE_BYTES) {
+    return 'Image must be under 5MB';
+  }
+  return '';
+}
+
 export type FieldErrors = Record<string, string>;
 
 export function validateForm(

@@ -22,14 +22,16 @@ export class SupportService {
     currentUser: any,
     attachment?: Express.Multer.File,
   ) {
-    let attachmentUrls: string[] = [];
+    // Stored as private-asset refs (public_id.format), not URLs — expiring
+    // download URLs are generated on read via getExpiringUrl()
+    let attachmentRefs: string[] = [];
 
     if (attachment) {
-      const uploaded = await this.cloudinaryService.uploadImage(
+      const uploaded = await this.cloudinaryService.uploadPrivateImage(
         attachment,
         'stitchup/support-attachments',
       );
-      attachmentUrls = [uploaded.url];
+      attachmentRefs = [uploaded.ref];
     }
 
     const ticket = this.ticketRepo.create({
@@ -39,7 +41,7 @@ export class SupportService {
       ticket_type: dto.ticket_type,
       subject: dto.subject,
       description: dto.description,
-      attachments: attachmentUrls.length > 0 ? attachmentUrls : undefined,
+      attachments: attachmentRefs.length > 0 ? attachmentRefs : undefined,
       priority: dto.priority || 'medium',
       ticket_status: 'open',
     });
@@ -59,7 +61,7 @@ export class SupportService {
         subject: saved.subject,
         priority: saved.priority,
         ticket_status: saved.ticket_status,
-        attachments: saved.attachments,
+        attachments: this.toAttachmentUrls(saved.attachments),
         created_at: saved.created_at,
       },
     };
@@ -97,7 +99,17 @@ export class SupportService {
     if (!ticket) {
       throw new NotFoundException('Ticket not found');
     }
-    return { data: ticket };
+    return {
+      data: {
+        ...ticket,
+        attachments: this.toAttachmentUrls(ticket.attachments),
+      },
+    };
+  }
+
+  private toAttachmentUrls(refs?: string[] | null): string[] | undefined {
+    if (!refs || refs.length === 0) return undefined;
+    return refs.map((ref) => this.cloudinaryService.getExpiringUrl(ref));
   }
 
   async resolveTicket(ticketId: number, userId: number, resolutionNotes?: string) {
