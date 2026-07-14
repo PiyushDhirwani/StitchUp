@@ -1,6 +1,8 @@
 # StitchUp Database Schema
 ## Modular SQL Files & Multi-Item Order Architecture
 
+> **⚠️ NOTE:** Database migration from **Supabase to Neon DB** will be done soon. The production database currently runs on Supabase (PostgreSQL); the SQL files in this folder are the legacy MySQL versions used for local development.
+
 Welcome to the StitchUp database schema! This version has been completely reorganized into **individual SQL files** for better maintainability and includes support for **multi-item orders** (e.g., Salwar + Kurta + Scarf bundles).
 
 ---
